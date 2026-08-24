@@ -236,3 +236,88 @@ async def test_asset_not_found_404s(client: httpx.AsyncClient) -> None:
     assert (await client.get("/assets/does-not-exist")).status_code == 404
     assert (await client.get("/assets/does-not-exist/download")).status_code == 404
     assert (await client.post("/assets/does-not-exist/accept")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_character_lock_blocks_identity_update_until_recast(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    series_id = generated.json()["series_id"]
+    characters = (await client.get(f"/series/{series_id}/characters")).json()["characters"]
+    character_id = characters[0]["id"]
+
+    fetched = await client.get(f"/characters/{character_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["locked"] is False
+    assert fetched.json()["version"] == 1
+
+    identity_update = await client.patch(
+        f"/characters/{character_id}/identity", json={"visual_identity_id": "asset-root"}
+    )
+    assert identity_update.status_code == 200
+    assert identity_update.json()["visual_identity_id"] == "asset-root"
+
+    locked = await client.post(f"/characters/{character_id}/lock")
+    assert locked.status_code == 200
+    assert locked.json()["locked"] is True
+
+    blocked = await client.patch(
+        f"/characters/{character_id}/identity", json={"visual_identity_id": "asset-root-2"}
+    )
+    assert blocked.status_code == 409
+
+    recast = await client.post(f"/characters/{character_id}/unlock")
+    assert recast.status_code == 200
+    assert recast.json()["locked"] is False
+    assert recast.json()["version"] == 2
+
+    allowed = await client.patch(
+        f"/characters/{character_id}/identity", json={"visual_identity_id": "asset-root-2"}
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["visual_identity_id"] == "asset-root-2"
+
+
+@pytest.mark.asyncio
+async def test_character_wardrobe_and_physical_state_variants(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    series_id = generated.json()["series_id"]
+    character_id = (await client.get(f"/series/{series_id}/characters")).json()["characters"][0]["id"]
+
+    wardrobe = await client.post(
+        f"/characters/{character_id}/wardrobe",
+        json={"label": "office_black_dress", "reference_asset_ids": ["asset-w1"]},
+    )
+    assert wardrobe.status_code == 200, wardrobe.text
+    assert wardrobe.json()["label"] == "office_black_dress"
+
+    state = await client.post(
+        f"/characters/{character_id}/physical-states",
+        json={"label": "injured", "reference_asset_ids": ["asset-s1"]},
+    )
+    assert state.status_code == 200
+    assert state.json()["label"] == "injured"
+
+    listed_wardrobe = await client.get(f"/characters/{character_id}/wardrobe")
+    assert [v["label"] for v in listed_wardrobe.json()] == ["office_black_dress"]
+
+    listed_states = await client.get(f"/characters/{character_id}/physical-states")
+    assert [v["label"] for v in listed_states.json()] == ["injured"]
+
+
+@pytest.mark.asyncio
+async def test_character_not_found_404s(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/characters/does-not-exist")).status_code == 404
+    assert (await client.post("/characters/does-not-exist/lock")).status_code == 404
+    assert (
+        await client.patch("/characters/does-not-exist/identity", json={"visual_identity_id": "x"})
+    ).status_code == 404
