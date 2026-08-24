@@ -1,0 +1,140 @@
+"""Repository Protocols and infra DTOs.
+
+Pipeline/service code type-hints against these Protocols. `SQLAlchemyProjectRepository`
+et al. in `sqlalchemy_impl.py` are the only implementation today; a future
+Postgres-backed or in-memory-fake implementation can be substituted without
+touching pipeline code.
+"""
+
+from datetime import datetime
+from typing import Protocol
+
+from pydantic import BaseModel, Field
+
+from xerama.domain.brief import CreativeBrief
+from xerama.domain.canon import CanonEvent
+from xerama.domain.character import CharacterCast
+from xerama.domain.episode import EpisodeOutline, EpisodeScript
+from xerama.domain.quality import QCResult
+from xerama.domain.scene import EpisodeShotPlan
+from xerama.domain.story import ConceptCandidate, JudgeResult
+from xerama.domain.enums import JobStage, JobStatus
+
+
+class ProjectRecord(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    status: str = "active"
+    created_at: datetime
+
+
+class SeriesRecord(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    logline: str = ""
+    genre: list[str] = Field(default_factory=list)
+    target_audience: str = "general"
+    episode_count_target: int = 3
+    episode_duration_target_seconds: int = 75
+    status: str = "draft"
+
+
+class EpisodeRecord(BaseModel):
+    id: str
+    series_id: str
+    episode_number: int
+    status: str
+    outline: EpisodeOutline
+    script: EpisodeScript | None = None
+
+
+class JobRecord(BaseModel):
+    id: str
+    project_id: str
+    stage: JobStage
+    status: JobStatus
+    provider: str = ""
+    model: str = ""
+    attempt: int = 1
+    error: str = ""
+
+
+class ProjectRepository(Protocol):
+    async def create(self, name: str, description: str = "") -> ProjectRecord: ...
+    async def get(self, project_id: str) -> ProjectRecord | None: ...
+
+
+class ConceptRepository(Protocol):
+    """Persists both dual-generation candidates and the judge decision. Never
+    deletes a rejected candidate - see ADR-019."""
+
+    async def save_candidate(
+        self,
+        project_id: str,
+        batch_id: str,
+        slot: str,
+        provider: str,
+        model: str,
+        brief: CreativeBrief,
+        candidate: ConceptCandidate,
+    ) -> str: ...
+
+    async def save_judge_decision(
+        self,
+        project_id: str,
+        batch_id: str,
+        provider: str,
+        model: str,
+        result: JudgeResult,
+        approved_concept: ConceptCandidate,
+    ) -> str: ...
+
+
+class SeriesRepository(Protocol):
+    async def create_series(
+        self, project_id: str, brief: CreativeBrief, approved_concept: ConceptCandidate
+    ) -> SeriesRecord: ...
+
+    async def get_series(self, series_id: str) -> SeriesRecord | None: ...
+
+    async def save_bible(self, series_id: str, bible) -> None: ...
+
+    async def get_bible(self, series_id: str): ...
+
+    async def save_cast(self, series_id: str, cast: CharacterCast) -> None: ...
+
+    async def get_cast(self, series_id: str) -> CharacterCast: ...
+
+
+class EpisodeRepository(Protocol):
+    async def save_outline(self, series_id: str, outline: EpisodeOutline) -> EpisodeRecord: ...
+
+    async def save_script(self, episode_id: str, script: EpisodeScript) -> None: ...
+
+    async def save_shot_plan(self, episode_id: str, plan: EpisodeShotPlan) -> None: ...
+
+    async def get_shot_plan(self, episode_id: str) -> EpisodeShotPlan | None: ...
+
+    async def save_quality_report(self, episode_id: str, result: QCResult) -> None: ...
+
+    async def save_canon_event(self, episode_id: str, event: CanonEvent) -> None: ...
+
+    async def list_by_series(self, series_id: str) -> list[EpisodeRecord]: ...
+
+    async def get(self, episode_id: str) -> EpisodeRecord | None: ...
+
+
+class JobRepository(Protocol):
+    """Persistent generation jobs - see docs/ARCHITECTURE.md section 11, ADR-023."""
+
+    async def create(self, project_id: str, stage: JobStage) -> JobRecord: ...
+
+    async def start(self, job_id: str, provider: str = "", model: str = "") -> None: ...
+
+    async def succeed(self, job_id: str) -> None: ...
+
+    async def fail(self, job_id: str, error: str) -> None: ...
+
+    async def get(self, job_id: str) -> JobRecord | None: ...
