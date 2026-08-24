@@ -1,6 +1,7 @@
 """FastAPI application factory. See README.md "First end-to-end test"."""
 
 import logging
+import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -17,14 +18,17 @@ from xerama.api.routers import (
     season,
     storyboards,
     style_bible,
+    video_production,
 )
 from xerama.config import ModelRoleRegistry, Settings, get_settings
 from xerama.db.base import create_all, make_engine, make_session_factory
 from xerama.pipeline.ai_gateway import AIGateway
+from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_image import FakeImageProvider
 from xerama.providers.fake_lip_sync import FakeLipSyncProvider
 from xerama.providers.fake_video import FakeVideoProvider
 from xerama.providers.fake_voice import FakeVoiceProvider
+from xerama.providers.ffmpeg_frame_extractor import FFmpegFrameExtractor
 from xerama.providers.health import ProviderHealthTracker
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.providers.openrouter import OpenRouterProvider
@@ -71,6 +75,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.video_router = MediaProviderRouter([FakeVideoProvider()])
     app.state.voice_router = MediaProviderRouter([FakeVoiceProvider()])
     app.state.lip_sync_router = MediaProviderRouter([FakeLipSyncProvider()])
+    # Real last-frame extraction needs an `ffmpeg` binary on PATH - fall
+    # back to the fake extractor (still a fully working no-video-decode
+    # placeholder) when one isn't installed, same "optional real adapter"
+    # principle as every media provider above.
+    app.state.frame_extractor = (
+        FFmpegFrameExtractor() if shutil.which("ffmpeg") else FakeFrameExtractor()
+    )
 
     yield
 
@@ -94,6 +105,7 @@ def create_app() -> FastAPI:
     app.include_router(characters.router)
     app.include_router(style_bible.router)
     app.include_router(storyboards.router)
+    app.include_router(video_production.router)
     return app
 
 

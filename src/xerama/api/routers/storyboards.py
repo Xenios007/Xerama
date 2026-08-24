@@ -14,8 +14,8 @@ from xerama.api.deps import (
     get_storyboard_service,
     get_style_bible_repo,
 )
+from xerama.api.shot_lookup import episode_context, find_shot
 from xerama.domain.asset import Asset
-from xerama.domain.scene import Scene, Shot
 from xerama.domain.storyboard import Storyboard
 from xerama.pipeline.prompt_compiler import PromptCompiler
 from xerama.providers.image import ImageProvider
@@ -28,28 +28,6 @@ router = APIRouter(tags=["storyboards"])
 
 class StoryboardCreateRequest(BaseModel):
     layout_description: str = ""
-
-
-def _find_shot(plan, scene_number: int, shot_number: int) -> tuple[Scene, Shot]:
-    for scene in plan.scenes:
-        if scene.scene_number != scene_number:
-            continue
-        for shot in scene.shots:
-            if shot.shot_number == shot_number:
-                return scene, shot
-    raise HTTPException(status_code=404, detail="scene/shot not found in the approved shot plan")
-
-
-async def _episode_context(
-    episode_id: str, episode_repo: EpisodeRepository, series_repo: SeriesRepository
-):
-    episode = await episode_repo.get(episode_id)
-    if episode is None:
-        raise HTTPException(status_code=404, detail="episode not found")
-    series = await series_repo.get_series(episode.series_id)
-    if series is None:
-        raise HTTPException(status_code=404, detail="series not found")
-    return episode, series
 
 
 @router.post(
@@ -100,11 +78,11 @@ async def generate_keyframe(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    episode, series = await _episode_context(storyboard.episode_id, episode_repo, series_repo)
+    episode, series = await episode_context(storyboard.episode_id, episode_repo, series_repo)
     plan = await episode_repo.get_shot_plan(storyboard.episode_id)
     if plan is None:
         raise HTTPException(status_code=409, detail="episode has no shot plan yet")
-    scene, shot = _find_shot(plan, storyboard.scene_number, storyboard.shot_number)
+    scene, shot = find_shot(plan, storyboard.scene_number, storyboard.shot_number)
     bible = await series_repo.get_bible(episode.series_id)
     if bible is None:
         raise HTTPException(status_code=409, detail="series has no approved Series Bible yet")
@@ -134,7 +112,7 @@ async def upload_keyframe(
         storyboard = await service.get(storyboard_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    _, series = await _episode_context(storyboard.episode_id, episode_repo, series_repo)
+    _, series = await episode_context(storyboard.episode_id, episode_repo, series_repo)
 
     data = await file.read()
     ext = "." + file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else ""
@@ -159,7 +137,7 @@ async def list_keyframes(
         storyboard = await service.get(storyboard_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    _, series = await _episode_context(storyboard.episode_id, episode_repo, series_repo)
+    _, series = await episode_context(storyboard.episode_id, episode_repo, series_repo)
     return await service.list_keyframes(series.project_id, storyboard)
 
 
