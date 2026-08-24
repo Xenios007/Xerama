@@ -26,6 +26,17 @@ class ImageGenerationRequest(BaseModel):
     aspect_ratio: str = "9:16"
 
 
+class ImageEditRequest(BaseModel):
+    """See MODULE-030 - repair a failed still without a full regenerate.
+    `instruction` describes the change (e.g. "fix the left hand"); `mask`
+    bytes are optional even for a `supports_mask` provider (a global edit
+    without a mask is still a valid edit request)."""
+
+    instruction: str
+    negative_prompt: str = ""
+    aspect_ratio: str = "9:16"
+
+
 class ImageProvider(Protocol):
     @property
     def name(self) -> str: ...
@@ -34,3 +45,12 @@ class ImageProvider(Protocol):
     def capabilities(self) -> ImageProviderCapabilities: ...
 
     async def generate(self, request: ImageGenerationRequest, reference_images: list[bytes]) -> bytes: ...
+
+    async def edit(
+        self, request: ImageEditRequest, base_image: bytes, mask: bytes | None = None
+    ) -> bytes:
+        """Only ever called on a provider whose `capabilities.supports_edit`
+        is `True` - the `MediaProviderRouter`'s capability filter (Module
+        07) keeps providers without real edit support out of the routing
+        pool before this is invoked."""
+        ...

@@ -15,7 +15,7 @@ never a new media-storage mechanism of its own.
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetType
 from xerama.domain.generation_request import ShotGenerationRequest
 from xerama.domain.storyboard import Storyboard
-from xerama.providers.image import ImageGenerationRequest, ImageProvider
+from xerama.providers.image import ImageEditRequest, ImageGenerationRequest, ImageProvider
 from xerama.repositories.interfaces import StoryboardRepository
 from xerama.services.asset_service import AssetService
 from xerama.services.media_router import MediaProviderRouter
@@ -103,6 +103,73 @@ class StoryboardService:
                 provider=provider.name,
                 source_reference_asset_ids=reference_ids,
                 generation_params={"routing_attempts": [a.model_dump() for a in attempts]},
+            ),
+            mime_type="image/png",
+            ext=".png",
+            take_number=take_number,
+        )
+
+    async def edit_keyframe(
+        self,
+        storyboard_id: str,
+        project_id: str,
+        instruction: str,
+        base_asset_id: str,
+        image_router: MediaProviderRouter[ImageProvider],
+        mask_asset_id: str | None = None,
+        negative_prompt: str = "",
+        aspect_ratio: str = "9:16",
+        series_id: str | None = None,
+    ) -> Asset:
+        """Targeted repair of one existing take (MODULE-030) - only routes
+        to providers whose `capabilities.supports_edit` is `True`, never
+        touches `base_asset_id` itself (always produces a new take, so an
+        accepted take is never silently overwritten), and preserves full
+        lineage (`source_reference_asset_ids` records what this edit was
+        based on)."""
+        storyboard = await self.get(storyboard_id)
+        base_image = await self._asset_service.read_bytes(base_asset_id)
+        mask = await self._asset_service.read_bytes(mask_asset_id) if mask_asset_id else None
+
+        def is_compatible(provider: ImageProvider) -> bool:
+            capabilities = provider.capabilities
+            if not capabilities.supports_edit:
+                return False
+            if mask is not None and not capabilities.supports_mask:
+                return False
+            return aspect_ratio in capabilities.supported_aspects
+
+        async def call(provider: ImageProvider) -> bytes:
+            return await provider.edit(
+                ImageEditRequest(
+                    instruction=instruction, negative_prompt=negative_prompt, aspect_ratio=aspect_ratio
+                ),
+                base_image,
+                mask,
+            )
+
+        provider, data, attempts = await image_router.generate(is_compatible, call)
+
+        reference_ids = [base_asset_id] + ([mask_asset_id] if mask_asset_id else [])
+        take_number = await self._next_take_number(project_id, storyboard)
+        return await self._asset_service.ingest_bytes(
+            data,
+            AssetType.IMAGE,
+            AssetOwnership(
+                project_id=project_id,
+                series_id=series_id,
+                episode_id=storyboard.episode_id,
+                scene_number=storyboard.scene_number,
+                shot_number=storyboard.shot_number,
+            ),
+            provenance=AssetProvenance(
+                provider=provider.name,
+                source_reference_asset_ids=reference_ids,
+                generation_params={
+                    "edit": True,
+                    "based_on_take": base_asset_id,
+                    "routing_attempts": [a.model_dump() for a in attempts],
+                },
             ),
             mime_type="image/png",
             ext=".png",
