@@ -4,6 +4,7 @@ from xerama.domain.scene import (
     Camera,
     CharacterBlock,
     EpisodeShotPlan,
+    MicroBeat,
     ProviderRequirements,
     Scene,
     SceneBlocking,
@@ -229,3 +230,86 @@ def test_scene_blocking_warns_on_screen_direction_flip_within_continuity_group()
     result = DirectorValidator().check_scene_blocking(plan)
     assert result.status == QCStatus.WARN
     assert any("changes screen_direction" in r for r in result.reasons)
+
+
+def test_motion_plan_passes_with_no_micro_beats() -> None:
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[_shot()])])
+    result = DirectorValidator().check_motion_plan(plan)
+    assert result.status == QCStatus.PASS
+
+
+def test_motion_plan_passes_with_valid_sequential_beats() -> None:
+    shot = _shot(
+        duration_seconds=6.0,
+        micro_beats=[
+            MicroBeat(start_seconds=0.0, end_seconds=2.0, description="looks up", character_id="CHAR_001"),
+            MicroBeat(start_seconds=2.0, end_seconds=4.0, description="stands", character_id="CHAR_001"),
+        ],
+    )
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[shot])])
+    result = DirectorValidator().check_motion_plan(plan)
+    assert result.status == QCStatus.PASS
+
+
+def test_motion_plan_blocks_beat_exceeding_shot_duration() -> None:
+    shot = _shot(
+        duration_seconds=3.0,
+        micro_beats=[MicroBeat(start_seconds=0.0, end_seconds=5.0, description="too long")],
+    )
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[shot])])
+    result = DirectorValidator().check_motion_plan(plan)
+    assert result.status == QCStatus.BLOCK
+    assert any("extends past" in r for r in result.reasons)
+
+
+def test_motion_plan_blocks_inverted_beat_range() -> None:
+    shot = _shot(
+        duration_seconds=5.0,
+        micro_beats=[MicroBeat(start_seconds=3.0, end_seconds=1.0, description="invalid range")],
+    )
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[shot])])
+    result = DirectorValidator().check_motion_plan(plan)
+    assert result.status == QCStatus.BLOCK
+    assert any("start_seconds >=" in r for r in result.reasons)
+
+
+def test_motion_plan_blocks_overlapping_beats_for_same_character() -> None:
+    shot = _shot(
+        duration_seconds=6.0,
+        micro_beats=[
+            MicroBeat(start_seconds=0.0, end_seconds=3.0, description="crosses left", character_id="CHAR_001"),
+            MicroBeat(start_seconds=1.0, end_seconds=4.0, description="turns right", character_id="CHAR_001"),
+        ],
+    )
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[shot])])
+    result = DirectorValidator().check_motion_plan(plan)
+    assert result.status == QCStatus.BLOCK
+    assert any("overlapping micro_beats" in r for r in result.reasons)
+
+
+def test_motion_plan_allows_overlap_between_different_characters() -> None:
+    shot = _shot(
+        duration_seconds=6.0,
+        micro_beats=[
+            MicroBeat(start_seconds=0.0, end_seconds=3.0, description="Mara speaks", character_id="CHAR_001"),
+            MicroBeat(start_seconds=0.0, end_seconds=3.0, description="Lena reacts", character_id="CHAR_002"),
+        ],
+    )
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[shot])])
+    result = DirectorValidator().check_motion_plan(plan)
+    assert result.status == QCStatus.PASS
+
+
+def test_motion_plan_warns_on_overloaded_beat_density() -> None:
+    shot = _shot(
+        duration_seconds=2.0,
+        micro_beats=[
+            MicroBeat(start_seconds=0.0, end_seconds=0.5, description="a", character_id="CHAR_001"),
+            MicroBeat(start_seconds=0.5, end_seconds=1.0, description="b", character_id="CHAR_001"),
+            MicroBeat(start_seconds=1.0, end_seconds=1.5, description="c", character_id="CHAR_001"),
+        ],
+    )
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[shot])])
+    result = DirectorValidator().check_motion_plan(plan)
+    assert result.status == QCStatus.WARN
+    assert any("overloaded motion plan" in r for r in result.reasons)
