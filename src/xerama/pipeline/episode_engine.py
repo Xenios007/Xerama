@@ -24,6 +24,7 @@ from xerama.domain.scene import EpisodeShotPlan
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.pipeline.canon_builder import build_canon_snapshot
 from xerama.pipeline.canon_commit import build_canon_events
+from xerama.pipeline.director_validators import DirectorValidator
 from xerama.pipeline.episode_stage import EpisodeStage
 from xerama.pipeline.job_runner import JobRunner
 from xerama.pipeline.shot_stage import ShotStage
@@ -61,6 +62,7 @@ class EpisodeEngine:
         self._shot_stage = ShotStage(gateway)
         self._retention_validator = RetentionValidator()
         self._continuity_validator = ContinuityValidator()
+        self._director_validator = DirectorValidator()
 
     async def generate_episode(
         self, project_id: str, series_id: str, episode_number: int
@@ -120,6 +122,16 @@ class EpisodeEngine:
             continuity_qc = self._continuity_validator.validate(cast, script, shot_plan)
             await self._episode_repo.save_quality_report(episode_record.id, retention_qc)
             await self._episode_repo.save_quality_report(episode_record.id, continuity_qc)
+
+            # Director-level production QC (Module 03) - informational only,
+            # never gates canon commit: shot-list production readiness is a
+            # separate concern from narrative canon validity.
+            for director_qc in (
+                self._director_validator.check_vertical_composition(shot_plan),
+                self._director_validator.check_dialogue_coverage(script, shot_plan),
+                self._director_validator.check_continuity_grouping(shot_plan),
+            ):
+                await self._episode_repo.save_quality_report(episode_record.id, director_qc)
 
             if continuity_qc.status != QCStatus.BLOCK or attempt == MAX_SHOT_PLAN_ATTEMPTS:
                 break

@@ -23,7 +23,22 @@ _SYSTEM_PROMPT = (
     "(4) set narrative_function, camera (shot_size/angle/lens/movement) and "
     "visual (composition/lighting/emotion) for every shot; "
     "(5) use micro_beats only when a shot's action clearly changes partway "
-    "through the clip."
+    "through the clip; "
+    "(6) set blocking only as a short free-text note on character/camera "
+    "position when it matters (e.g. 'A left, B right, A closer to camera') - "
+    "leave it empty otherwise, do not invent a coordinate system; "
+    "(7) give adjacent shots that must stay visually continuous (e.g. a "
+    "continuous conversation or an action carrying across cuts) the same "
+    "continuity_group string; independent shots (different scene, time "
+    "jump, or cutaway) must leave continuity_group null; "
+    "(8) set provider_requirements per shot: image_to_video should stay "
+    "true for nearly every shot (Xerama generates from an approved "
+    "keyframe); set first_frame_required true unless the shot is a pure "
+    "establishing/transition shot; set last_frame_required true only for a "
+    "shot that is NOT the last in its continuity_group (its final frame "
+    "anchors the next shot); set subject_reference_required true whenever "
+    "named characters appear; set native_audio_required true only if the "
+    "shot needs synchronized dialogue/audio baked into the generated clip."
 )
 
 
