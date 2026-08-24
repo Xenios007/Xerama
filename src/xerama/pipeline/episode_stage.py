@@ -9,6 +9,7 @@ from xerama.domain.canon import CanonSnapshot
 from xerama.domain.character import CharacterCast
 from xerama.domain.enums import ModelRole
 from xerama.domain.episode import EpisodeOutline, EpisodeOutlineSet, EpisodeScript
+from xerama.domain.season import SeasonPlan
 from xerama.domain.story import SeriesBible
 from xerama.pipeline.ai_gateway import AIGateway
 
@@ -18,7 +19,10 @@ _OUTLINE_SYSTEM_PROMPT = (
     "docs/STORY_FORMULA.md section 4 (Question -> Partial Answer -> New "
     "Problem -> Reversal -> Bigger Question -> Escalation -> Payoff). Rotate "
     "cliffhanger types across episodes - do not repeat the same type twice in "
-    "a row. Every episode must end genuinely unresolved."
+    "a row. Every episode must end genuinely unresolved. When a Season Plan "
+    "is supplied, each outline MUST follow that episode's assigned act, "
+    "reveals, promises and escalation level exactly rather than inventing a "
+    "different structure."
 )
 
 _SCRIPT_SYSTEM_PROMPT = (
@@ -36,13 +40,22 @@ class EpisodeStage:
         self._gateway = gateway
 
     async def generate_outlines(
-        self, bible: SeriesBible, cast: CharacterCast, episode_count: int
+        self,
+        bible: SeriesBible,
+        cast: CharacterCast,
+        episode_count: int,
+        season_plan: SeasonPlan | None = None,
     ) -> list[EpisodeOutline]:
         prompt = (
             f"Series Bible:\n{bible.model_dump_json(indent=2)}\n\n"
             f"Cast:\n{cast.model_dump_json(indent=2)}\n\n"
             f"Generate exactly {episode_count} outlines, episode_number 1..{episode_count}."
         )
+        if season_plan is not None:
+            prompt += (
+                "\n\nApproved Season Plan (each outline must implement its "
+                f"assigned episode exactly):\n{season_plan.model_dump_json(indent=2)}"
+            )
         result = await self._gateway.generate(
             role=ModelRole.STORY_ARCHITECT,
             schema=EpisodeOutlineSet,

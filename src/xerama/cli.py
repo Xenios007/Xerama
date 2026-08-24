@@ -24,6 +24,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyEpisodeRepository,
     SQLAlchemyJobRepository,
     SQLAlchemyProjectRepository,
+    SQLAlchemySeasonRepository,
     SQLAlchemySeriesRepository,
 )
 
@@ -67,6 +68,7 @@ async def main() -> None:
                 gateway=gateway,
                 concept_repo=SQLAlchemyConceptRepository(session),
                 series_repo=SQLAlchemySeriesRepository(session),
+                season_repo=SQLAlchemySeasonRepository(session),
                 episode_repo=SQLAlchemyEpisodeRepository(session),
                 job_repo=SQLAlchemyJobRepository(session),
             )

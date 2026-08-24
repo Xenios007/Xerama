@@ -24,6 +24,7 @@ from xerama.domain.enums import JobStage, ModelRole, QCStatus
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan
+from xerama.domain.season import SeasonPlan
 from xerama.domain.story import ConceptCandidate, JudgeResult, SeriesBible
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.pipeline.bible_stage import BibleStage
@@ -31,21 +32,25 @@ from xerama.pipeline.canon_commit import build_canon_events
 from xerama.pipeline.character_stage import CharacterStage
 from xerama.pipeline.concept_stage import ConceptStage
 from xerama.pipeline.episode_stage import EpisodeStage
+from xerama.pipeline.season_stage import SeasonStage
+from xerama.pipeline.season_validators import SeasonValidator
 from xerama.pipeline.shot_stage import ShotStage
 from xerama.pipeline.validators import ContinuityValidator, RetentionValidator
 from xerama.repositories.interfaces import (
     ConceptRepository,
     EpisodeRepository,
     JobRepository,
+    SeasonRepository,
     SeriesRepository,
 )
 
 T = TypeVar("T")
 
 # Targeted retry, not whole-episode regeneration - see ADR-019. Bounded to
-# one retry for V1; repeated continuity failures are left BLOCK for human
-# review rather than looping indefinitely.
+# one retry for V1; repeated continuity/season-plan failures are left BLOCK
+# for human review rather than looping indefinitely.
 MAX_SHOT_PLAN_ATTEMPTS = 2
+MAX_SEASON_PLAN_ATTEMPTS = 2
 
 
 class PipelineResult(BaseModel):
@@ -60,6 +65,9 @@ class PipelineResult(BaseModel):
     approved_concept: ConceptCandidate
     bible: SeriesBible
     cast: CharacterCast
+    season_plan_id: str
+    season_plan: SeasonPlan
+    season_qc: QCResult
     outlines: list[EpisodeOutline]
     episode1_id: str
     episode1_script: EpisodeScript
@@ -74,19 +82,23 @@ class Showrunner:
         gateway: AIGateway,
         concept_repo: ConceptRepository,
         series_repo: SeriesRepository,
+        season_repo: SeasonRepository,
         episode_repo: EpisodeRepository,
         job_repo: JobRepository,
     ) -> None:
         self._gateway = gateway
         self._concept_repo = concept_repo
         self._series_repo = series_repo
+        self._season_repo = season_repo
         self._episode_repo = episode_repo
         self._job_repo = job_repo
         self._concept_stage = ConceptStage(gateway)
         self._bible_stage = BibleStage(gateway)
         self._character_stage = CharacterStage(gateway)
+        self._season_stage = SeasonStage(gateway)
         self._episode_stage = EpisodeStage(gateway)
         self._shot_stage = ShotStage(gateway)
+        self._season_validator = SeasonValidator()
         self._retention_validator = RetentionValidator()
         self._continuity_validator = ContinuityValidator()
 
@@ -165,11 +177,30 @@ class Showrunner:
         )
         await self._series_repo.save_cast(series.id, cast)
 
+        season_plan_model = self._gateway.resolve_model(ModelRole.STORY_ARCHITECT)
+        season_feedback = ""
+        for attempt in range(1, MAX_SEASON_PLAN_ATTEMPTS + 1):
+            season_plan = await self._run_job(
+                project_id,
+                JobStage.SEASON_PLAN,
+                season_plan_model,
+                self._season_stage.generate_season_plan(
+                    bible, cast, brief.episode_count, feedback=season_feedback
+                ),
+            )
+            season_qc = self._season_validator.validate(season_plan, cast)
+            # Every attempt is persisted as a new version - never overwritten
+            # - so a rejected season plan stays inspectable (ADR-019).
+            season_plan_record = await self._season_repo.create_plan(series.id, season_plan, season_qc)
+            if season_qc.status != QCStatus.BLOCK or attempt == MAX_SEASON_PLAN_ATTEMPTS:
+                break
+            season_feedback = "; ".join(season_qc.reasons)
+
         outlines = await self._run_job(
             project_id,
             JobStage.EPISODE_OUTLINES,
             self._gateway.resolve_model(ModelRole.STORY_ARCHITECT),
-            self._episode_stage.generate_outlines(bible, cast, brief.episode_count),
+            self._episode_stage.generate_outlines(bible, cast, brief.episode_count, season_plan=season_plan),
         )
         episode_ids_by_number: dict[int, str] = {}
         for outline in outlines:
@@ -229,6 +260,9 @@ class Showrunner:
             approved_concept=approved_concept,
             bible=bible,
             cast=cast,
+            season_plan_id=season_plan_record.id,
+            season_plan=season_plan,
+            season_qc=season_qc,
             outlines=outlines,
             episode1_id=episode1_id,
             episode1_script=episode1_script,
