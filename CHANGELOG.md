@@ -4,6 +4,21 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-036 - Lip Sync)
+
+- `VideoProductionService.generate_lip_synced_take`: reuses the existing
+  `ShotVideoProduction` record/take-numbering (no new workflow table) -
+  reads a source video + dialogue take, routes through
+  `MediaProviderRouter[LipSyncProvider]`, always ingests a new take
+  (sources never mutated).
+- `LipSyncEligibilityError`/`_validate_lip_sync_eligibility`: rejects a
+  character explicitly marked not-visible in MODULE-022's `SceneBlocking`
+  before calling any provider; permissive when no structured blocking
+  data exists.
+- New API: `POST /video-productions/{id}/takes/lip-sync`.
+- 4 new service tests + an extended end-to-end API test chaining
+  video -> audio -> lip-sync generation.
+
 ### Added (MODULE-034 / MODULE-035 - Voice Generation, Dialogue/Audio Pipeline)
 
 - `VoiceProfile`: one per character, reuses Module 05's

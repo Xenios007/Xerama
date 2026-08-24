@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-034/035 (Voice Generation, Dialogue/Audio Pipeline)._
+_Last updated: 2026-08-25 - MODULE-036 (Lip Sync)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -78,7 +78,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 302 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 306 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -763,6 +763,41 @@ points, so this is judged already-adequate rather than a gap).
   `AssetProvenance`, project/series/episode/character/scene/shot
   ownership, take/version numbering, accept/reject status). No changes
   needed.
+
+### MODULE-036 - Lip Sync
+
+- **`VideoProductionService.generate_lip_synced_take`** - deliberately
+  reuses the existing `ShotVideoProduction` record and take-numbering
+  instead of a fourth parallel workflow table (Storyboard/
+  VideoProduction/AudioProduction already exist): a lip-synced clip is
+  just another way to produce a video take for a shot. Reads the source
+  video take and a dialogue take (MODULE-034/035) as bytes, routes
+  through `MediaProviderRouter[LipSyncProvider]` (capability filter:
+  `aspect_ratio` supported and `duration_seconds <= max_duration_seconds`
+  - Module 07's router, reused as-is), and always ingests the result as a
+  **new** take - neither source asset is ever mutated, so "route failures
+  to retry/QC without corrupting originals" holds structurally.
+- **`_validate_lip_sync_eligibility` / `LipSyncEligibilityError`** -
+  "validate visible speaker" without real face detection: when a
+  `character_id` and the shot's MODULE-022 `SceneBlocking` are both
+  supplied and that character's `CharacterBlock.visible` is `False`,
+  rejects *before* calling any provider. Permissive (no error) when no
+  structured blocking data exists yet - same "skip, don't fabricate a
+  check" precedent as `check_scene_blocking`.
+- **API** - `POST /video-productions/{id}/takes/lip-sync` (body:
+  `source_video_asset_id`, `source_audio_asset_id`, `duration_seconds`,
+  optional `aspect_ratio`/`character_id`). 422 on
+  `NoEligibleProviderError`, 409 on `LipSyncEligibilityError`, 404/410 if
+  a source asset row/file is missing.
+- No migration needed - reuses the existing `ShotVideoProduction`/`Asset`
+  machinery entirely.
+- Acceptance criterion met: TTS dialogue can become a versioned lip-synced
+  clip behind a replaceable provider contract, with full source lineage
+  (`source_reference_asset_ids=[video_asset_id, audio_asset_id]`) -
+  verified by 4 new service tests (lineage/sources-untouched, capability
+  rejection, non-visible-speaker rejection, permissive-without-blocking-
+  data) plus an extended end-to-end API test chaining video -> audio ->
+  lip-sync generation.
 
 ## Partially implemented
 
