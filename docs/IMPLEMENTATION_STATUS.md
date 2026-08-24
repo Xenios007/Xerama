@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - Module 05 (Character Casting Studio)._
+_Last updated: 2026-08-25 - Module 06 (Style Bible, Storyboard & Image Production)._
 
 This tracks what actually exists in `src/xerama` against the architecture in
 `docs/` and `research/`, per the project rule "when implementation reveals
@@ -69,7 +69,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 169 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 201 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -320,14 +320,87 @@ documentation - do not silently diverge."
   new tests (6 domain, 6 repository, 6 service, 9 policy, 3 API) plus the
   full existing suite staying green with the `PromptCompiler` change.
 
+### Module 06 - Style Bible, Storyboard & Image Production
+
+- **`StyleBible`** (`domain/style_bible.py`, ADR-013) - one production-anchor
+  row per series: `style_asset_id` (canonical image), `style_dna` (textual),
+  `palette`, `lighting`, `texture`, `color_temperature`, `composition_rules`,
+  `negatives`, plus `locked`/`version` using the exact same immutability
+  pattern as `Character` (Module 05) - `StyleBibleService.update` raises
+  `PermissionError` while locked; `unlock_for_recast` is the sanctioned way
+  past a lock and bumps `version`. Deliberately not a versioned-history
+  table (unlike `SeasonPlanRecord`) - a Style Bible is a single anchor, not
+  a sequence of drafts under review.
+- **`Storyboard`** (`domain/storyboard.py`) - one per-shot workflow record
+  (`draft`/`approved` + `approved_keyframe_asset_id`). Individual keyframe
+  attempts are NOT a new entity - they are plain `Asset` rows (Module 04,
+  `type=image`, `ownership.scene_number/shot_number`, `take_number`),
+  reusing Module 04's accept/reject/dedup machinery completely rather than
+  duplicating an asset-like "Keyframe" model.
+- **`ImageProvider` contract + `FakeImageProvider`**
+  (`providers/image.py`, `providers/fake_image.py`) - `ImageProviderCapabilities`
+  (`supports_reference_images`, `max_reference_images`, `supports_edit`,
+  `supports_mask`, `supported_aspects`, `priority`, `estimated_cost_usd`)
+  per research/PRODUCTION_STACK_2026.md "Provider contract". No paid/free
+  real provider is wired up - `app.state.image_provider` is a
+  `FakeImageProvider` (mirrors `FakeLLMProvider`'s scripted-queue pattern);
+  manual upload (Module 04's ingest path) is the first-class fallback.
+- **`StoryboardService`** (`services/storyboard_service.py`) -
+  `generate_keyframe` rejects an incompatible provider (unsupported aspect
+  ratio, or references requested but unsupported) with
+  `UnsupportedProviderCapabilityError` *before* calling `ImageProvider.generate`
+  (per the research doc: "reject an incompatible provider before spending a
+  generation request"); resolves each compiled reference id to actual bytes
+  via `AssetService`, skipping any that don't resolve to a real asset yet
+  (pre-image-generation Character-DNA-only fallback); ingests the result as
+  a take-numbered `Asset`. `accept_keyframe`/`reject_keyframe` delegate to
+  `AssetService.accept`/`reject`; a rejection leaves the storyboard `draft`
+  so the next `generate_keyframe`/`upload_keyframe` call is the retry, with
+  `take_number` incrementing each time (never overwritten - ADR-019).
+  `upload_keyframe` is the same manual-upload fallback, first-class per the
+  module spec.
+- **Style Bible now actually flows into compiled prompts** - `PromptCompiler.
+  compile_shot`/`compile_episode` (Module 03) take an optional `StyleBible`:
+  `style_dna` populates `ShotGenerationRequest.style_dna`, `style_asset_id`
+  fills `references.style_asset_id` (a shot-level override still wins if the
+  Director set one), and `negatives` are appended to the negative-constraint
+  set. This closes the Module 03 deviation note ("`style_dna` is always ""
+  for now") now that a real Style Bible exists.
+  `GET /episodes/{id}/generation-requests` now fetches/creates the series'
+  Style Bible and passes it through.
+- **`AssetRepository.list_by_ownership`** gained `scene_number`/
+  `shot_number` filters (alongside Module 05's `character_id`) so a
+  storyboard's keyframe takes can be queried precisely; exposed on
+  `GET /assets` too.
+- **API** - `GET/PATCH /series/{id}/style-bible`, `POST .../lock`,
+  `POST .../unlock`; `POST /episodes/{id}/scenes/{n}/shots/{n}/storyboard`
+  (idempotent get-or-create), `GET /episodes/{id}/storyboards`,
+  `GET /storyboards/{id}`, `POST /storyboards/{id}/keyframes/generate`,
+  `POST .../keyframes/upload` (multipart), `GET .../keyframes`,
+  `POST .../keyframes/{asset_id}/accept`, `POST .../keyframes/{asset_id}/reject`.
+- **Migration** - `alembic/versions/c9737e7a2af4_add_style_bible_and_storyboards.py`
+  (`style_bibles`, `storyboards` tables).
+- Acceptance criterion met: `POST /storyboards/{id}/keyframes/generate` (or
+  `/upload` when no provider is available) plus `/accept` takes a shot from
+  "approved in the shot plan" to "durable, take-numbered, character/style/
+  location-referenced key frame asset with an audit trail of every rejected
+  attempt" - verified end-to-end in the API test suite (generate -> list ->
+  accept, and reject -> still-draft -> manual-upload retry with an
+  incremented take number) plus 32 new unit tests (style bible domain/
+  repository/service lock-immutability, storyboard repository CRUD/
+  idempotency, fake image provider, storyboard service capability
+  rejection/take-numbering/accept-reject, and Style-Bible-into-PromptCompiler
+  integration).
+
 ## Partially implemented
 
-- **Character/Style identity** - the textual/structural layer (`Character`,
-  `CharacterDNA` fields, `visual_identity_id`/`voice_identity_id` slots)
-  exists per ADR-012, but no image generation runs yet, so DNA fields are
-  currently populated by the LLM as text only, and identity/voice asset IDs
-  stay `null`. Style Bible has no dedicated table yet (deferred - no
-  downstream consumer until image generation exists).
+- **Character/Style identity** - the full structural layer (`Character`,
+  `CharacterDNA`, `reference_pack`, `StyleBible`, lock/version, wardrobe/
+  physical-state variants) exists per ADR-012/013 and a `FakeImageProvider`
+  can populate it end to end for tests, but no *real, credentialed* image
+  provider is wired up yet, so in a real run these fields stay populated by
+  manual upload / LLM text only until a real `ImageProvider` (paid or a
+  practical free/trial API) is added.
 - **Provider health** - `ProviderHealthTracker` exists and is used by the AI
   gateway, but there is only one provider (OpenRouter) so there is no
   fallback *across* providers yet, only a circuit-break signal.
@@ -339,14 +412,12 @@ documentation - do not silently diverge."
 
 ## Planned (not started)
 
-- Director/Media Engine: image/video/voice/lip-sync provider adapters,
-  Style Bible table, storage provider abstraction, FFmpeg assembly.
+- Video/voice/lip-sync provider adapters, media provider router, FFmpeg
+  assembly (Modules 07-09/12).
 - Analytics/learning feedback loop (Phase 5).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
-- See `modules/README.md` for the full remaining module list (04-14).
-- Style Bible (Module 06) does not exist yet, so `ShotGenerationRequest.style_dna`
-  is always `""` for now - populated once a real Style Bible asset exists.
+- See `modules/README.md` for the full remaining module list (07-14).
 - `Showrunner.run()` still auto-generates only Episode 1 end-to-end (by
   design - see deviation below); episodes 2..N require an explicit
   `EpisodeEngine` call (API or code).
@@ -441,3 +512,22 @@ consistent enough to start coding per
      `ImageProvider` contract and fake implementation," so Module 05 uses
      Module 04's existing manual-upload path to populate identity assets
      for Trial 01 rather than pre-empting Module 06's contract.
+8. **Scope choices in Module 06** - `modules/06_STYLE_STORYBOARD_IMAGE.md`
+   leaves several implementation details open:
+   - **"Storyboard/keyframe records"** were implemented as one lightweight
+     `Storyboard` workflow row per shot (status + approved-keyframe
+     pointer) plus plain `Asset` rows for every keyframe take, rather than a
+     new "Keyframe" entity duplicating what `Asset` (Module 04) already
+     provides (content hash, accept/reject, take_number, provenance). A
+     Keyframe *is* an Asset with `type=image` and shot-level ownership.
+   - **Rough storyboard/layout step** is a single free-text
+     `layout_description` field on `Storyboard`, not a separate
+     geometry/sketch asset - matching Module 03's "avoid overengineering"
+     precedent (deviation not to add a coordinate system for `blocking`).
+   - **No real (paid/free) `ImageProvider` implementation** - the module
+     spec says a real provider "may be added only if a practical free/trial
+     API is available," and none was available/credentialed in this
+     session, so only `FakeImageProvider` + manual upload exist. Swapping
+     in a real provider later requires no interface change - just a new
+     class satisfying `ImageProvider` and an `app.state.image_provider`
+     wiring change.

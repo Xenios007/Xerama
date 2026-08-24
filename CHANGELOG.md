@@ -4,6 +4,42 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (Module 06 - Style Bible, Storyboard & Image Production)
+
+- `StyleBible` (ADR-013): one production-anchor row per series
+  (style asset/DNA/palette/lighting/texture/color-temperature/composition
+  rules/negatives), locked/versioned the same way as `Character`
+  (Module 05) - `StyleBibleService.update` blocked while locked,
+  `unlock_for_recast` bumps `version`.
+- `Storyboard`: one per-shot workflow record (draft/approved +
+  approved-keyframe pointer). Keyframe takes are plain `Asset` rows
+  (Module 04, `type=image`, `take_number`) - no new asset-like entity.
+- `ImageProvider` contract + `ImageProviderCapabilities` + `FakeImageProvider`.
+  `StoryboardService.generate_keyframe` rejects an incompatible provider
+  (unsupported aspect ratio / unsupported references) before calling
+  `generate()`, resolves compiled reference ids to bytes via `AssetService`,
+  and ingests the result as a take-numbered `Asset`; `upload_keyframe` is
+  the manual-upload fallback. Reject leaves the storyboard in `draft` for
+  a retry with an incremented take number.
+- `PromptCompiler.compile_shot`/`compile_episode` now take an optional
+  `StyleBible` and populate `style_dna`/`references.style_asset_id`/
+  negative constraints from it - closes the Module 03 gap where
+  `style_dna` was always `""`.
+- `AssetRepository.list_by_ownership` gained `scene_number`/`shot_number`
+  filters (alongside Module 05's `character_id`).
+- New API: `GET/PATCH /series/{id}/style-bible[/lock|/unlock]`,
+  `POST /episodes/{id}/scenes/{n}/shots/{n}/storyboard`,
+  `GET /episodes/{id}/storyboards`, `GET /storyboards/{id}`,
+  `POST /storyboards/{id}/keyframes/generate|upload`,
+  `GET /storyboards/{id}/keyframes`,
+  `POST /storyboards/{id}/keyframes/{asset_id}/accept|reject`.
+- Migration for `style_bibles`/`storyboards`.
+- 32 new tests (style bible domain/repository/service, storyboard
+  repository, fake image provider, storyboard service capability
+  rejection/take-numbering/accept-reject-retry, Style-Bible-in-
+  PromptCompiler integration, and end-to-end API keyframe workflow
+  coverage).
+
 ### Added (Module 05 - Character Casting Studio)
 
 - Extended `Character` with a multi-view `reference_pack`, `identity_provenance`
