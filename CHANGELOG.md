@@ -4,6 +4,33 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (Module 04 - Asset & Storage System)
+
+- `Asset` domain model with typed ownership (`AssetOwnership`) and full
+  provenance/lineage (`AssetProvenance`) - every asset traces back to what
+  produced it (ADR-020).
+- `StorageProvider` protocol + `LocalStorageProvider`: path-traversal-safe
+  local filesystem storage (`save_bytes`/`save_file`/`read_bytes`/`exists`/
+  `delete`/`list_all`), ready for a remote/S3 implementation later without
+  touching callers (ADR-022).
+- `AssetService`: content-addressed ingestion (`ingest_bytes`/`ingest_file`/
+  `ingest_from_url`) that hashes and dedups on-disk storage while always
+  preserving one `Asset` row per ingestion event; accept/reject workflow;
+  dedup-safe delete (protects `ACCEPTED` assets unless forced, never deletes
+  a file another asset still references); `find_missing_files`/
+  `find_unreferenced_files` reconciliation.
+- New API: `GET /assets`, `GET /assets/{id}`, `GET /assets/{id}/download`,
+  `POST /assets/{id}/accept`, `POST /assets/{id}/reject`,
+  `DELETE /assets/{id}`, `POST /assets/upload` (multipart).
+- Migration for the new `assets` table.
+- `python-multipart` added as a dependency (required for FastAPI file
+  uploads).
+- 31 new tests (local storage path-safety and round trips, asset domain
+  defaults/round-trip, asset repository CRUD/filters/status transitions,
+  asset service ingestion/dedup/accept-reject/delete-protection/
+  reconciliation, and end-to-end API upload/download/accept/reject/delete
+  coverage).
+
 ### Added (Module 03 - Director & Prompt Compiler)
 
 - Extended the `Shot` contract: `blocking` (free-text, not a coordinate

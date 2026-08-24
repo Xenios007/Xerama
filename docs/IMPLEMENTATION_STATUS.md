@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - Module 03 (Director & Prompt Compiler)._
+_Last updated: 2026-08-25 - Module 04 (Asset & Storage System)._
 
 This tracks what actually exists in `src/xerama` against the architecture in
 `docs/` and `research/`, per the project rule "when implementation reveals
@@ -69,7 +69,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 108 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 139 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -180,6 +180,57 @@ documentation - do not silently diverge."
   persisted - it's a pure function of already-persisted data).
 - **Migration** - `alembic/versions/42f264e2c041_add_shot_director_fields.py`
   (`shots.blocking`, `shots.continuity_group`, `shots.provider_requirements`).
+
+### Module 04 - Asset & Storage System
+
+- **`Asset` domain model** (`domain/asset.py`) - `AssetType` (image/video/
+  audio/subtitle/document/other), `AssetStatus` (pending/accepted/rejected),
+  `AssetOwnership` (`project_id` required; `series_id`/`episode_id`/
+  `scene_number`/`shot_number` optional), `AssetProvenance` (provider/model/
+  prompt_version/generation_params/source_reference_asset_ids/source_url) -
+  every asset carries full lineage back to what produced it (ADR-020).
+- **`StorageProvider` protocol + `LocalStorageProvider`**
+  (`providers/storage.py`, `providers/local_storage.py`) - `save_bytes`/
+  `save_file`/`read_bytes`/`exists`/`delete`/`list_all`/`absolute_path`, all
+  routed through a path-traversal guard (`UnsafeStoragePathError` on any
+  `../` or absolute-path escape from the storage root) and `asyncio.to_thread`
+  for filesystem I/O. Root path is `Settings.asset_storage_path`
+  (ADR-022 - local filesystem first, remote/S3-style providers implement the
+  same protocol later without touching callers).
+- **`AssetService`** (`services/asset_service.py`) - `ingest_bytes`/
+  `ingest_file`/`ingest_from_url` sha256-hash the content, store it at
+  `{hash[:2]}/{hash}{ext}` (content-addressed, so identical bytes are only
+  ever written to disk once), but always create a *new* `Asset` row per
+  ingestion call so per-event ownership/provenance/lineage is never merged
+  away just because the bytes match something already stored. `accept`/
+  `reject` transition status; `delete` refuses to remove an `ACCEPTED` asset
+  unless `force=True`, and is dedup-safe - it only deletes the physical file
+  once no other `Asset` row still references that `storage_path`.
+  `find_missing_files`/`find_unreferenced_files` reconcile DB rows against
+  what is actually on disk. `ingest_from_url` is the sanctioned way any
+  future provider (image/video/audio) output becomes a durable asset instead
+  of a transient provider URL (ADR-020's "never treat provider URLs as
+  permanent").
+- **Persistence** - `Asset` table (flattened ownership/columns, JSON
+  `provenance`), `AssetRepository` protocol + SQLAlchemy implementation,
+  following the same pattern as every other repository in this codebase.
+- **API** (`api/routers/assets.py`) - `GET /assets` (filtered by
+  project_id/series_id/episode_id/asset_type), `GET /assets/{id}`,
+  `GET /assets/{id}/download`, `POST /assets/{id}/accept`,
+  `POST /assets/{id}/reject?reason=`, `DELETE /assets/{id}?force=`,
+  `POST /assets/upload` (multipart, for manual/reference assets - sets
+  `provenance.provider = "manual_upload"`). `app.state.storage_provider` is
+  built once in `lifespan` alongside the DB engine.
+- **Migration** - `alembic/versions/4e20f6801cd1_add_assets_table.py`.
+- Acceptance criterion met: any future provider output (image/video/audio
+  bytes or a provider-hosted URL) can be handed to `AssetService.ingest_*`
+  and immediately becomes a durable, traceable-lineage Xerama asset - no
+  media provider integration exists yet to call it, but the contract and a
+  fully working local-storage implementation are in place end to end
+  (upload -> hash -> store -> accept/reject -> download -> delete),
+  verified by 31 new tests (12 storage, 2 domain, 6 repository, 9 service,
+  3 API - `find_missing_files`/`find_unreferenced_files`/dedup-safe-delete/
+  path-traversal-rejection all directly exercised).
 
 ## Partially implemented
 
