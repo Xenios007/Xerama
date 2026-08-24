@@ -12,6 +12,7 @@ from xerama.providers.fake import FakeLLMProvider
 from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_image import FakeImageProvider
 from xerama.providers.fake_video import FakeVideoProvider
+from xerama.providers.fake_voice import FakeVoiceProvider
 from xerama.providers.health import ProviderHealthTracker
 from xerama.providers.image import ImageProviderCapabilities
 from xerama.providers.local_storage import LocalStorageProvider
@@ -52,11 +53,14 @@ async def client(tmp_path):
     video_provider = FakeVideoProvider()
     app.state.video_router = MediaProviderRouter([video_provider])
     app.state.frame_extractor = FakeFrameExtractor()
+    voice_provider = FakeVoiceProvider()
+    app.state.voice_router = MediaProviderRouter([voice_provider])
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
         ac.fake_provider = provider  # exposed for tests that need to queue more responses
         ac.fake_image_provider = image_provider
+        ac.fake_voice_provider = voice_provider
         ac.fake_video_provider = video_provider
         yield ac
 
@@ -599,3 +603,125 @@ async def test_video_production_reject_and_manual_upload_retry(client: httpx.Asy
 async def test_video_production_not_found_404s(client: httpx.AsyncClient) -> None:
     assert (await client.get("/video-productions/does-not-exist")).status_code == 404
     assert (await client.post("/video-productions/does-not-exist/takes/generate")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_voice_profile_lock_blocks_update_until_recast(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    series_id = generated.json()["series_id"]
+    character_id = (await client.get(f"/series/{series_id}/characters")).json()["characters"][0]["id"]
+
+    fetched = await client.get(f"/characters/{character_id}/voice-profile")
+    assert fetched.status_code == 200
+    assert fetched.json()["locked"] is False
+
+    updated = await client.patch(
+        f"/characters/{character_id}/voice-profile", json={"provider_voice_id": "v1"}
+    )
+    assert updated.status_code == 200
+    assert updated.json()["provider_voice_id"] == "v1"
+
+    locked = await client.post(f"/characters/{character_id}/voice-profile/lock")
+    assert locked.json()["locked"] is True
+
+    blocked = await client.patch(
+        f"/characters/{character_id}/voice-profile", json={"provider_voice_id": "v2"}
+    )
+    assert blocked.status_code == 409
+
+    recast = await client.post(f"/characters/{character_id}/voice-profile/unlock")
+    assert recast.json()["locked"] is False
+    assert recast.json()["version"] == 2
+
+
+@pytest.mark.asyncio
+async def test_audio_production_generate_accept_flow(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    created_production = await client.post(
+        f"/episodes/{episode1_id}/scenes/1/shots/1/audio-production"
+    )
+    assert created_production.status_code == 200, created_production.text
+    production = created_production.json()
+    assert production["status"] == "draft"
+    production_id = production["id"]
+
+    idempotent = await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/audio-production")
+    assert idempotent.json()["id"] == production_id
+
+    client.fake_voice_provider.queue(b"synthesized dialogue")
+    generated_take = await client.post(
+        f"/audio-productions/{production_id}/takes/generate", json={"character_id": "CHAR_001"}
+    )
+    assert generated_take.status_code == 200, generated_take.text
+    asset = generated_take.json()
+    assert asset["take_number"] == 1
+    assert asset["type"] == "audio"
+
+    takes = await client.get(f"/audio-productions/{production_id}/takes")
+    assert len(takes.json()) == 1
+
+    accepted = await client.post(f"/audio-productions/{production_id}/takes/{asset['id']}/accept")
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "approved"
+    assert accepted.json()["approved_take_asset_id"] == asset["id"]
+
+
+@pytest.mark.asyncio
+async def test_audio_production_reject_and_manual_upload_retry(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+    production_id = (
+        await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/audio-production")
+    ).json()["id"]
+
+    client.fake_voice_provider.queue(b"bad take")
+    first = (
+        await client.post(
+            f"/audio-productions/{production_id}/takes/generate", json={"character_id": "CHAR_001"}
+        )
+    ).json()
+
+    rejected = await client.post(
+        f"/audio-productions/{production_id}/takes/{first['id']}/reject",
+        params={"reason": "mispronounced name"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+
+    still_draft = await client.get(f"/audio-productions/{production_id}")
+    assert still_draft.json()["status"] == "draft"
+
+    retry_upload = await client.post(
+        f"/audio-productions/{production_id}/takes/upload",
+        files={"file": ("retake.mp3", b"manual retake bytes", "audio/mpeg")},
+    )
+    assert retry_upload.status_code == 200, retry_upload.text
+    assert retry_upload.json()["take_number"] == 2
+    assert retry_upload.json()["provenance"]["provider"] == "manual_upload"
+
+
+@pytest.mark.asyncio
+async def test_audio_production_not_found_404s(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/audio-productions/does-not-exist")).status_code == 404
+    assert (
+        await client.post(
+            "/audio-productions/does-not-exist/takes/generate", json={"character_id": "CHAR_001"}
+        )
+    ).status_code == 404
