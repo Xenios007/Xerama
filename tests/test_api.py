@@ -11,6 +11,7 @@ from xerama.pipeline.ai_gateway import AIGateway
 from xerama.providers.fake import FakeLLMProvider
 from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_image import FakeImageProvider
+from xerama.providers.fake_lip_sync import FakeLipSyncProvider
 from xerama.providers.fake_video import FakeVideoProvider
 from xerama.providers.fake_voice import FakeVoiceProvider
 from xerama.providers.health import ProviderHealthTracker
@@ -55,12 +56,15 @@ async def client(tmp_path):
     app.state.frame_extractor = FakeFrameExtractor()
     voice_provider = FakeVoiceProvider()
     app.state.voice_router = MediaProviderRouter([voice_provider])
+    lip_sync_provider = FakeLipSyncProvider()
+    app.state.lip_sync_router = MediaProviderRouter([lip_sync_provider])
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
         ac.fake_provider = provider  # exposed for tests that need to queue more responses
         ac.fake_image_provider = image_provider
         ac.fake_voice_provider = voice_provider
+        ac.fake_lip_sync_provider = lip_sync_provider
         ac.fake_video_provider = video_provider
         yield ac
 
@@ -562,6 +566,33 @@ async def test_video_production_generate_accept_flow(client: httpx.AsyncClient) 
     assert accepted.json()["approved_take_asset_id"] == asset["id"]
     # No continuity_group on this fixture shot - never extracts a frame.
     assert accepted.json()["extracted_last_frame_asset_id"] is None
+
+    audio_production_id = (
+        await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/audio-production")
+    ).json()["id"]
+    client.fake_voice_provider.queue(b"dialogue audio")
+    audio_asset = (
+        await client.post(
+            f"/audio-productions/{audio_production_id}/takes/generate",
+            json={"character_id": "CHAR_001"},
+        )
+    ).json()
+
+    client.fake_lip_sync_provider.queue(b"lip synced clip")
+    synced = await client.post(
+        f"/video-productions/{production_id}/takes/lip-sync",
+        json={
+            "source_video_asset_id": asset["id"],
+            "source_audio_asset_id": audio_asset["id"],
+            "duration_seconds": 5.0,
+            "character_id": "CHAR_001",
+        },
+    )
+    assert synced.status_code == 200, synced.text
+    synced_asset = synced.json()
+    assert synced_asset["take_number"] == 2
+    assert synced_asset["provenance"]["generation_params"]["lip_synced"] is True
+    assert synced_asset["provenance"]["source_reference_asset_ids"] == [asset["id"], audio_asset["id"]]
 
 
 @pytest.mark.asyncio
