@@ -10,6 +10,7 @@ from xerama.db.base import create_all, make_engine, make_session_factory
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.providers.fake import FakeLLMProvider
 from xerama.providers.health import ProviderHealthTracker
+from xerama.providers.local_storage import LocalStorageProvider
 
 
 @pytest.fixture
@@ -38,6 +39,7 @@ async def client(tmp_path):
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.ai_gateway = gateway
+    app.state.storage_provider = LocalStorageProvider(tmp_path / "storage")
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -172,3 +174,65 @@ async def test_generate_series_404_for_unknown_project(client: httpx.AsyncClient
         json={"genre": "thriller"},
     )
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_asset_upload_download_accept_reject_delete_flow(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+
+    upload = await client.post(
+        "/assets/upload",
+        params={"project_id": project_id, "asset_type": "image"},
+        files={"file": ("frame.png", b"fake png bytes", "image/png")},
+    )
+    assert upload.status_code == 200, upload.text
+    asset = upload.json()
+    assert asset["mime_type"] == "image/png"
+    assert asset["provenance"]["provider"] == "manual_upload"
+    asset_id = asset["id"]
+
+    listed = await client.get("/assets", params={"project_id": project_id})
+    assert len(listed.json()) == 1
+
+    fetched = await client.get(f"/assets/{asset_id}")
+    assert fetched.status_code == 200
+
+    downloaded = await client.get(f"/assets/{asset_id}/download")
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"fake png bytes"
+
+    accepted = await client.post(f"/assets/{asset_id}/accept")
+    assert accepted.json()["status"] == "accepted"
+
+    protected_delete = await client.delete(f"/assets/{asset_id}")
+    assert protected_delete.status_code == 409
+
+    forced_delete = await client.delete(f"/assets/{asset_id}", params={"force": True})
+    assert forced_delete.status_code == 204
+
+    assert (await client.get(f"/assets/{asset_id}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_asset_reject_records_reason(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    upload = await client.post(
+        "/assets/upload",
+        params={"project_id": project_id, "asset_type": "video"},
+        files={"file": ("clip.mp4", b"fake mp4 bytes", "video/mp4")},
+    )
+    asset_id = upload.json()["id"]
+
+    rejected = await client.post(f"/assets/{asset_id}/reject", params={"reason": "face drift"})
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+    assert rejected.json()["rejection_reason"] == "face drift"
+
+
+@pytest.mark.asyncio
+async def test_asset_not_found_404s(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/assets/does-not-exist")).status_code == 404
+    assert (await client.get("/assets/does-not-exist/download")).status_code == 404
+    assert (await client.post("/assets/does-not-exist/accept")).status_code == 404
