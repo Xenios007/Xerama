@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from xerama.api.deps import (
     get_asset_service,
     get_episode_repo,
+    get_lip_sync_router,
     get_series_repo,
     get_storyboard_service,
     get_style_bible_repo,
@@ -20,14 +21,27 @@ from xerama.api.shot_lookup import episode_context, find_shot
 from xerama.domain.asset import Asset
 from xerama.domain.video_production import ShotVideoProduction
 from xerama.pipeline.prompt_compiler import PromptCompiler
+from xerama.providers.lip_sync import LipSyncProvider
 from xerama.providers.video import VideoProvider
 from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository, StyleBibleRepository
 from xerama.services.asset_service import AssetService
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
 from xerama.services.storyboard_service import StoryboardService
-from xerama.services.video_production_service import ContinuityOrderingError, VideoProductionService
+from xerama.services.video_production_service import (
+    ContinuityOrderingError,
+    LipSyncEligibilityError,
+    VideoProductionService,
+)
 
 router = APIRouter(tags=["video-production"])
+
+
+class LipSyncTakeRequest(BaseModel):
+    source_video_asset_id: str
+    source_audio_asset_id: str
+    duration_seconds: float
+    aspect_ratio: str = "9:16"
+    character_id: str | None = None
 
 
 @router.post(
@@ -121,6 +135,53 @@ async def generate_take(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ContinuityOrderingError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/video-productions/{production_id}/takes/lip-sync", response_model=Asset)
+async def generate_lip_synced_take(
+    production_id: str,
+    body: LipSyncTakeRequest,
+    service: VideoProductionService = Depends(get_video_production_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    lip_sync_router: MediaProviderRouter[LipSyncProvider] = Depends(get_lip_sync_router),
+) -> Asset:
+    """Synchronize a controlled dialogue take (MODULE-034/035) onto this
+    shot's video (MODULE-036) - only when native audio is insufficient."""
+    try:
+        production = await service.get(production_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _, series = await episode_context(production.episode_id, episode_repo, series_repo)
+
+    blocking_plan = None
+    if body.character_id:
+        plan = await episode_repo.get_shot_plan(production.episode_id)
+        if plan is not None:
+            _, shot = find_shot(plan, production.scene_number, production.shot_number)
+            blocking_plan = shot.blocking_plan
+
+    try:
+        return await service.generate_lip_synced_take(
+            production_id,
+            series.project_id,
+            body.source_video_asset_id,
+            body.source_audio_asset_id,
+            lip_sync_router,
+            body.duration_seconds,
+            aspect_ratio=body.aspect_ratio,
+            character_id=body.character_id,
+            blocking_plan=blocking_plan,
+            series_id=series.id,
+        )
+    except NoEligibleProviderError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except LipSyncEligibilityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
 
 
 @router.post("/video-productions/{production_id}/takes/upload", response_model=Asset)

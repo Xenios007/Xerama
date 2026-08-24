@@ -12,6 +12,7 @@ from xerama.pipeline.episode_engine import EpisodeEngine
 from xerama.pipeline.orchestrator import Showrunner
 from xerama.providers.frame_extractor import FrameExtractor
 from xerama.providers.image import ImageProvider
+from xerama.providers.lip_sync import LipSyncProvider
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.providers.video import VideoProvider
 from xerama.providers.voice import VoiceProvider
@@ -98,6 +99,10 @@ def get_image_router(request: Request) -> MediaProviderRouter[ImageProvider]:
 
 def get_video_router(request: Request) -> MediaProviderRouter[VideoProvider]:
     return request.app.state.video_router
+
+
+def get_lip_sync_router(request: Request) -> MediaProviderRouter[LipSyncProvider]:
+    return request.app.state.lip_sync_router
 
 
 def get_frame_extractor(request: Request) -> FrameExtractor:
