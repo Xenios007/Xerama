@@ -4,6 +4,41 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-032 - Video Generation, formerly Module 08 - Video Production)
+
+- `ShotVideoProduction`: per-shot video workflow record (draft/approved +
+  approved-take pointer + extracted-last-frame pointer), mirroring
+  Module 06's `Storyboard` pattern; video takes stay plain `Asset` rows.
+- `VideoProductionService`: `generate_take` routes through
+  `MediaProviderRouter[VideoProvider]` (capability filter via
+  `matches_requirements`, health/fallback reused from Module 07),
+  `upload_take` manual fallback, `accept_take`/`reject_take` via
+  `AssetService` (never overwrites a take).
+- Continuity sequencing: shots sharing a `continuity_group` must generate
+  in order - `ContinuityOrderingError` if a shot's immediate predecessor
+  hasn't been accepted+last-frame-extracted yet. `accept_take` extracts
+  the take's actual last frame and threads it into the next shot's
+  `first_frame` input (better continuity anchor than the storyboard
+  keyframe). No cascading invalidation of other shots on failure/rejection.
+- `FrameExtractor` contract: `FFmpegFrameExtractor` (real, shells out to
+  ffmpeg, untested here) + `FakeFrameExtractor` (what tests run against).
+  App auto-selects the real one only if `ffmpeg` is on `PATH`.
+- `AssetService.ingest_bytes`/`ingest_file`/`ingest_from_url` gained
+  `width`/`height`/`duration_seconds` (Module 04 gap-fill, needed to
+  record a video take's duration).
+- New API: `POST /episodes/{id}/scenes/{n}/shots/{n}/video-production`,
+  `GET /episodes/{id}/video-productions`, `GET /video-productions/{id}`,
+  `POST /video-productions/{id}/takes/generate|upload`,
+  `GET /video-productions/{id}/takes`,
+  `POST /video-productions/{id}/takes/{asset_id}/accept|reject`.
+  Shared shot/episode-lookup logic extracted to `api/shot_lookup.py`
+  (de-duplicated out of `storyboards.py`).
+- Migration for `shot_video_productions`.
+- 22 new tests (frame extractor, video-production repository incl.
+  continuity-predecessor lookup, service take-numbering/capability-
+  rejection/continuity-ordering/continuity-chaining/resume/reject-retry/
+  manual-upload, end-to-end API coverage).
+
 ### Added (Module 07 - Media Provider Registry & Router)
 
 - `VideoProvider`/`VoiceProvider`/`LipSyncProvider` capability contracts +

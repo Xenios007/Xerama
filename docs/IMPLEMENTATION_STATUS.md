@@ -1,6 +1,15 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - Module 07 (Media Provider Registry & Router)._
+_Last updated: 2026-08-25 - MODULE-032 (Video Generation)._
+
+**Numbering note:** `modules/` was restructured from 14 broad briefs
+(`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
+`modules/MODULE-001_*.md`-`MODULE-080_*.md` queue (see
+`modules/README.md` and `docs/ARCHITECTURE_FREEZE_001_080.md`). Sections
+below titled "Module NN" predate the restructure; sections titled
+"MODULE-NNN" use the new queue. Nothing was rebuilt for the rename - the
+new queue's own rule is "inspect and reuse... do not reimplement working
+functionality merely to match filenames."
 
 This tracks what actually exists in `src/xerama` against the architecture in
 `docs/` and `research/`, per the project rule "when implementation reveals
@@ -69,7 +78,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 221 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 244 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -455,6 +464,78 @@ documentation - do not silently diverge."
   frame/subject-reference/native-audio checks) plus the full existing
   suite staying green through the `StoryboardService` refactor.
 
+### MODULE-032 - Video Generation (formerly Module 08 - Video Production)
+
+- **`ShotVideoProduction`** (`domain/video_production.py`) - one per-shot
+  workflow record (draft/approved + `approved_take_asset_id` +
+  `extracted_last_frame_asset_id`), mirroring `Storyboard`'s pattern
+  exactly. Video takes are plain `Asset` rows (`type=video`, `take_number`)
+  - no duplicated asset-like entity, same principle as Module 06's
+  keyframes.
+- **`VideoProductionService`** (`services/video_production_service.py`) -
+  `generate_take` resolves compiled shot references to bytes, asks a
+  `MediaProviderRouter[VideoProvider]` for a capability-eligible/healthy
+  provider (falling back across registered video providers on failure -
+  Module 07's router, reused as-is), and ingests the result as a
+  take-numbered video `Asset`. `upload_take` is the manual-upload fallback.
+  `accept_take`/`reject_take` delegate to `AssetService` (never overwrites
+  a take - ADR-019; a rejection leaves the production `draft` for retry).
+- **Continuity sequencing** (ADR-017, research/PRODUCTION_STACK_2026.md
+  "Previous-frame continuity") - shots sharing a `continuity_group` must
+  generate in order: `generate_take` looks up the immediately preceding
+  shot's `ShotVideoProduction` (by `(scene_number, shot_number)` within the
+  group) and raises `ContinuityOrderingError` *before* calling any
+  provider if that predecessor hasn't been accepted-and-extracted yet.
+  Once accepted, `accept_take` extracts the take's actual last frame (via
+  `FrameExtractor`) and records it as `extracted_last_frame_asset_id` -
+  that real final frame (not the original storyboard keyframe) becomes the
+  next shot's `first_frame` input, exactly matching the playbook's guidance
+  that the actual generated frame is a better continuity anchor than the
+  plan. Standalone shots (no `continuity_group`) never trigger extraction.
+  Independent shots have no ordering constraint and can generate/retry in
+  any order or concurrently.
+- **No cascading invalidation** - a rejected/failed take never touches any
+  other shot's production record or takes (unlike episode/canon
+  regeneration in Module 02, a deliberately different concern). Satisfies
+  "Failed shots must not force regeneration of successful shots."
+- **`FrameExtractor` contract** (`providers/frame_extractor.py`) -
+  `FFmpegFrameExtractor` (real, shells out to `ffmpeg -sseof -1 ...`, not
+  exercised by tests since no `ffmpeg` binary is assumed installed) and
+  `FakeFrameExtractor` (deterministic placeholder, what tests actually run
+  against - "Use fake provider for tests"). `app.state.frame_extractor`
+  auto-selects the real extractor only if `ffmpeg` is found on `PATH`
+  (`shutil.which`), else falls back to the fake one - same "optional real
+  adapter" principle as every media provider.
+- **`AssetService.ingest_bytes`/`ingest_file`/`ingest_from_url` gained
+  `width`/`height`/`duration_seconds`** (Module 04 gap-fill) - these
+  fields already existed on `Asset`/`AssetRepository.create` but were
+  never exposed through the convenience ingest methods until a video take
+  actually needed to record its duration.
+- **API** (`api/routers/video_production.py`) -
+  `POST /episodes/{id}/scenes/{n}/shots/{n}/video-production` (idempotent;
+  `continuity_group` read from the approved shot plan, not client-supplied,
+  so sequencing always matches the Director's actual data),
+  `GET /episodes/{id}/video-productions`, `GET /video-productions/{id}`,
+  `POST /video-productions/{id}/takes/generate` (uses the shot's approved
+  Storyboard keyframe as `first_frame` when one exists),
+  `POST .../takes/upload`, `GET .../takes`,
+  `POST .../takes/{asset_id}/accept|reject`. `NoEligibleProviderError` ->
+  422, `ContinuityOrderingError` -> 409. Shared shot/episode-lookup logic
+  extracted to `api/shot_lookup.py` (was duplicated inline in
+  `storyboards.py`; both routers now import it - "reuse existing
+  components instead of duplicating them").
+- **Migration** - `alembic/versions/8fe8803fbf26_add_shot_video_productions.py`.
+- Acceptance criterion met: given an approved keyframe, `POST .../takes/generate`
+  (or `/upload`) through `/accept` produces a durable, take-numbered video
+  asset with traceable lineage and continuity metadata using
+  `FakeVideoProvider`/`FakeFrameExtractor` end to end - verified by 22 new
+  tests (frame-extractor unit tests, video-production repository CRUD +
+  continuity-predecessor lookup, service take-numbering/capability-
+  rejection/continuity-ordering-enforcement/continuity-chaining/resume-
+  after-predecessor-accepted/reject-retry/manual-upload, and end-to-end API
+  generate/accept and reject/manual-upload-retry coverage) plus the full
+  existing suite staying green.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -475,14 +556,20 @@ documentation - do not silently diverge."
 
 ## Planned (not started)
 
-- Real (paid/free) video/voice/lip-sync provider adapters, job worker
-  scheduler, multimodal QC/retakes, FFmpeg assembly (Modules 08-12) - the
-  provider contracts/router/registries these will plug into already exist
-  (Module 07).
-- Analytics/learning feedback loop (Phase 5).
+- Real (paid/free) video/voice/lip-sync provider adapters and real
+  `ffmpeg` last-frame extraction verification - the contracts/router/
+  registries/fake extractor these will plug into already exist.
+- Character motion/performance mapping (MODULE-033), voice/dialogue/lip-
+  sync/music/SFX/subtitles (MODULE-034-039), job queue/worker/retry
+  (MODULE-041-043), multimodal QC/retakes (MODULE-044-045), FFmpeg
+  assembly/versioning/export (MODULE-046-048), cost/observability
+  (MODULE-049-050), remaining APIs/frontend (MODULE-051-060),
+  analytics/learning (MODULE-061-065), security/deployment/hardening
+  (MODULE-066-070), testing/eval frameworks (MODULE-071-076),
+  backup/migration/docs/release (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
-- See `modules/README.md` for the full remaining module list (08-14).
+- See `modules/README.md` for the full authoritative MODULE-001..080 queue.
 - `Showrunner.run()` still auto-generates only Episode 1 end-to-end (by
   design - see deviation below); episodes 2..N require an explicit
   `EpisodeEngine` call (API or code).
