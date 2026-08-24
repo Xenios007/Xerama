@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-001/002 audit (Core Platform Architecture, Configuration & Environment)._
+_Last updated: 2026-08-25 - MODULE-022 (Scene Blocking)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -78,7 +78,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 250 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 259 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -571,6 +571,64 @@ documentation - do not silently diverge."
   existing config/architecture were already ~95% compliant, one real gap
   found and closed per audit, verified by 6 new tests plus the full
   existing suite staying green.
+
+### MODULE-003 through MODULE-021/023 audit summary
+
+Audited against the existing implementation (XER-001 baseline + old
+Modules 01-03): domain contract system, database/persistence, repository
+architecture, AI gateway, model registry/routing, provider health,
+creative brief, concept generation, judge/merge, series bible, canon/
+memory, season architecture, reveal/mystery engine, episode planning,
+script generation, continuity engine, story quality engine, director
+engine, and shot planning are all already substantially implemented and
+tested from earlier work in this session (see the XER-001 and "Module
+01/02/03" sections above) - no rebuild needed, matching the new queue's
+own rule. Specific items double-checked directly rather than assumed:
+`SeriesBible.locked_facts` already distinguishes locked vs. editable
+facts (MODULE-012); `.env.example` already has placeholders only
+(MODULE-002, verified above). MODULE-022 (Scene Blocking) was the first
+genuine gap found in this range - see below. Two small deferred items
+worth naming rather than silently skipping: `aspect_ratio` fields have no
+explicit format validation yet (low-risk - nothing currently sets them to
+an invalid value), and `AIGateway` has no explicit cancellation-token
+API (Python task cancellation already propagates through its `await`
+points, so this is judged already-adequate rather than a gap).
+
+### MODULE-022 - Scene Blocking
+
+- **`CharacterBlock`/`MovementBeat`/`SceneBlocking`** (`domain/scene.py`,
+  `ScreenPosition`/`BlockingDepth` enums in `domain/enums.py`) - lightweight
+  left/center/right + foreground/midground/background positions (not real
+  coordinates - "keep schema extensible to coordinates later"), visible/
+  speaking/reacting flags, `occluded_by` character-id list, and a
+  `screen_direction` string per shot for continuity checks. Added as
+  `Shot.blocking_plan: SceneBlocking | None = None` - optional and
+  additive alongside the existing free-text `Shot.blocking`, which stays
+  exactly as it was (no shot plan anywhere needs to change to keep
+  working).
+- **`DirectorValidator.check_scene_blocking`** (`pipeline/director_validators.py`)
+  - BLOCK if a shot's `blocking_plan` is set but missing a `CharacterBlock`
+  for one of `shot.character_ids` (data-integrity violation, same
+  precedent as `check_continuity_grouping`'s non-contiguous-group BLOCK);
+  WARN if two visible characters share the same position+depth without
+  one listing the other in `occluded_by` ("validate multi-character
+  blocking"); WARN if shots in the same `continuity_group` disagree on
+  `screen_direction` ("preserve screen direction across connected
+  shots"). Shots with no `blocking_plan` are skipped entirely - the
+  structured plan is opt-in. Wired into `EpisodeEngine`'s existing
+  Director-QC pass alongside the other three checks (persisted as a
+  `QualityReport`, informational only - never gates canon commit, same as
+  the other Director checks).
+- **Persistence** - `shots.blocking_plan` JSON column
+  (`alembic/versions/25a65ab303cb_add_shot_blocking_plan.py`); nullable,
+  so every existing/fixture shot plan (none of which set it) round-trips
+  unchanged.
+- Acceptance criterion met: shot planning can now reason about spatial
+  continuity (who's visible/speaking/reacting/occluding, and whether the
+  established screen direction holds across a continuity group) without a
+  full 3D engine - verified by 9 new tests (domain defaults/JSON round-
+  trip, all three validator outcomes, repository round-trip) plus the
+  full existing suite staying green.
 
 ## Partially implemented
 

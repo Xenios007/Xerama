@@ -4,6 +4,29 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-022 - Scene Blocking)
+
+- `CharacterBlock`/`MovementBeat`/`SceneBlocking` domain contracts
+  (lightweight left/center/right + depth positions, visible/speaking/
+  reacting flags, `occluded_by`, `screen_direction`) - `Shot.blocking_plan`
+  is optional and additive alongside the existing free-text `blocking`.
+- `DirectorValidator.check_scene_blocking`: BLOCK on missing
+  `CharacterBlock` entries for a shot's characters, WARN on undocumented
+  position/depth overlap between visible characters, WARN on
+  `screen_direction` disagreement within a `continuity_group`. Wired into
+  `EpisodeEngine`'s existing Director-QC pass.
+- Migration for `shots.blocking_plan`.
+- 9 new tests (domain defaults/JSON round-trip, all three validator
+  outcomes, repository round-trip).
+
+### Audited (MODULE-003 through MODULE-021/023)
+
+- Domain contracts, persistence, repositories, AI gateway, model
+  registry/health, creative brief through story-quality/director/shot-
+  planning engines all already substantially implemented from earlier
+  work this session - confirmed against each module's requirements, no
+  rebuild needed. MODULE-022 was the first genuine gap found.
+
 ### Fixed (MODULE-001/002 audit - Core Platform Architecture, Configuration & Environment)
 
 - `domain/asset.py` no longer imports `xerama.db.base` (architecture-
