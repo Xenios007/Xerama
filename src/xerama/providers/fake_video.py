@@ -17,7 +17,7 @@ class FakeVideoProvider:
         self._queue: deque[bytes | ProviderError] = deque(responses or [])
         self._capabilities = capabilities or VideoProviderCapabilities()
         self._name = name
-        self.calls: list[VideoGenerationRequest] = []
+        self.calls: list[tuple[VideoGenerationRequest, int, bytes | None, bytes | None]] = []
 
     def queue(self, item: bytes | ProviderError) -> None:
         self._queue.append(item)
@@ -37,7 +37,7 @@ class FakeVideoProvider:
         first_frame: bytes | None = None,
         last_frame: bytes | None = None,
     ) -> bytes:
-        self.calls.append(request)
+        self.calls.append((request, len(reference_images), first_frame, last_frame))
         if self._queue:
             item = self._queue.popleft()
             if isinstance(item, ProviderError):
