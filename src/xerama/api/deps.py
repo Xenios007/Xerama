@@ -12,6 +12,7 @@ from xerama.pipeline.episode_engine import EpisodeEngine
 from xerama.pipeline.orchestrator import Showrunner
 from xerama.providers.image import ImageProvider
 from xerama.providers.local_storage import LocalStorageProvider
+from xerama.services.media_router import MediaProviderRouter
 from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyAssetRepository,
     SQLAlchemyCharacterCastingRepository,
@@ -82,8 +83,8 @@ def get_storyboard_service(
     )
 
 
-def get_image_provider(request: Request) -> ImageProvider:
-    return request.app.state.image_provider
+def get_image_router(request: Request) -> MediaProviderRouter[ImageProvider]:
+    return request.app.state.image_router
 
 
 def get_project_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyProjectRepository:

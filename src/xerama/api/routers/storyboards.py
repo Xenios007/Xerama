@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from xerama.api.deps import (
     get_episode_repo,
-    get_image_provider,
+    get_image_router,
     get_series_repo,
     get_storyboard_service,
     get_style_bible_repo,
@@ -20,7 +20,8 @@ from xerama.domain.storyboard import Storyboard
 from xerama.pipeline.prompt_compiler import PromptCompiler
 from xerama.providers.image import ImageProvider
 from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository, StyleBibleRepository
-from xerama.services.storyboard_service import StoryboardService, UnsupportedProviderCapabilityError
+from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
+from xerama.services.storyboard_service import StoryboardService
 
 router = APIRouter(tags=["storyboards"])
 
@@ -92,7 +93,7 @@ async def generate_keyframe(
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
     style_bible_repo: StyleBibleRepository = Depends(get_style_bible_repo),
-    image_provider: ImageProvider = Depends(get_image_provider),
+    image_router: MediaProviderRouter[ImageProvider] = Depends(get_image_router),
 ) -> Asset:
     try:
         storyboard = await service.get(storyboard_id)
@@ -113,9 +114,9 @@ async def generate_keyframe(
 
     try:
         return await service.generate_keyframe(
-            storyboard_id, series.project_id, request, image_provider, series_id=episode.series_id
+            storyboard_id, series.project_id, request, image_router, series_id=episode.series_id
         )
-    except UnsupportedProviderCapabilityError as exc:
+    except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 

@@ -22,9 +22,13 @@ from xerama.config import ModelRoleRegistry, Settings, get_settings
 from xerama.db.base import create_all, make_engine, make_session_factory
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.providers.fake_image import FakeImageProvider
+from xerama.providers.fake_lip_sync import FakeLipSyncProvider
+from xerama.providers.fake_video import FakeVideoProvider
+from xerama.providers.fake_voice import FakeVoiceProvider
 from xerama.providers.health import ProviderHealthTracker
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.providers.openrouter import OpenRouterProvider
+from xerama.services.media_router import MediaProviderRouter
 
 
 def _configure_logging(settings: Settings) -> None:
@@ -57,9 +61,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ai_gateway = gateway
     app.state.http_client = http_client
     app.state.storage_provider = LocalStorageProvider(settings.asset_storage_path)
-    # No free/trial image API is wired up yet - see Module 06. Manual asset
-    # upload (Module 04) is the first-class fallback until one is added.
-    app.state.image_provider = FakeImageProvider()
+    # No free/trial media API is wired up yet for any of these - see
+    # Module 06/07. Manual asset upload (Module 04) remains the first-class
+    # fallback for images; video/voice/lip-sync consumers arrive in
+    # Modules 08/09. Each registry can register additional real adapters
+    # later without any caller-side change - they only ever ask a router
+    # for a capability, never a vendor.
+    app.state.image_router = MediaProviderRouter([FakeImageProvider()])
+    app.state.video_router = MediaProviderRouter([FakeVideoProvider()])
+    app.state.voice_router = MediaProviderRouter([FakeVoiceProvider()])
+    app.state.lip_sync_router = MediaProviderRouter([FakeLipSyncProvider()])
 
     yield
 
