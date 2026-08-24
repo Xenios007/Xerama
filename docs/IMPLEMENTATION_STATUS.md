@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-029/030 (Image Generation, Image Editing/Regeneration)._
+_Last updated: 2026-08-25 - MODULE-033 (Character Motion / Performance)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -78,7 +78,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 269 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 278 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -674,6 +674,38 @@ points, so this is judged already-adequate rather than a gap).
   round trip/mask tracking/default capabilities, service edit lineage/
   base-take-untouched/capability-and-mask rejection, end-to-end API edit
   flow and unsupported-provider rejection).
+
+### MODULE-033 - Character Motion / Performance
+
+- **`MicroBeat` extended** (`domain/scene.py`) - `character_id`, `pose`,
+  `expression`, `gaze`, `camera_note` added alongside the existing
+  `start_seconds`/`end_seconds`/`description`, all optional/defaulted so
+  every existing micro-beat (prose-only) keeps working unchanged. No
+  migration needed - `shots.micro_beats` was already a JSON column.
+  "Keep dialogue performance linked to speaker/emotion" is satisfied by
+  construction: `character_id` ties a structured beat to a specific
+  speaker, and `expression` carries the emotional beat.
+- **`DirectorValidator.check_motion_plan`** - BLOCK on an inverted beat
+  range (`start_seconds >= end_seconds`) or a beat extending past
+  `shot.duration_seconds` (literally impossible timing); BLOCK on two
+  beats for the *same* `character_id` overlapping in time (an impossible
+  simultaneous pose/expression/gaze - beats for *different* characters
+  are allowed to overlap, e.g. speaker + reaction); WARN when a shot
+  averages more than one micro-beat per second (an overloaded plan a
+  provider is unlikely to render faithfully). Wired into `EpisodeEngine`'s
+  existing Director-QC pass alongside the other four checks.
+- **"Provider capability differences for performance/subject reference"**
+  needed no new code - already handled by `ProviderRequirements`/
+  `VideoProviderCapabilities.subject_reference` and
+  `providers/video.py:matches_requirements` (Module 07/08).
+- Acceptance criterion met: motion is now structured, validated
+  production data (character/pose/expression/gaze/timing) rather than one
+  unbounded prose sentence, with impossible or overloaded plans caught
+  before generation - verified by 9 new tests (domain defaults/round-trip,
+  all `check_motion_plan` outcomes: valid/BLOCK-past-duration/BLOCK-
+  inverted-range/BLOCK-same-character-overlap/PASS-different-character-
+  overlap/WARN-overloaded-density) plus the full existing suite staying
+  green.
 
 ## Partially implemented
 

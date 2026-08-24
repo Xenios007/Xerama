@@ -4,6 +4,16 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-033 - Character Motion / Performance)
+
+- `MicroBeat` gained `character_id`/`pose`/`expression`/`gaze`/
+  `camera_note` (all optional, no migration needed - already JSON).
+- `DirectorValidator.check_motion_plan`: BLOCK on inverted/out-of-bounds
+  beat timing or same-character overlapping beats (impossible
+  simultaneous pose/expression), WARN on overloaded beat density
+  (>1 beat/second). Wired into `EpisodeEngine`'s Director-QC pass.
+- 9 new tests (domain, all validator outcomes).
+
 ### Added (MODULE-030 - Image Editing / Regeneration)
 
 - `ImageEditRequest` + `ImageProvider.edit` (provider-supported edit/mask
