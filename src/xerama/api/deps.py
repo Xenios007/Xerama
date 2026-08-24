@@ -13,6 +13,7 @@ from xerama.pipeline.orchestrator import Showrunner
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyAssetRepository,
+    SQLAlchemyCharacterCastingRepository,
     SQLAlchemyConceptRepository,
     SQLAlchemyEpisodeRepository,
     SQLAlchemyJobRepository,
@@ -21,6 +22,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemySeriesRepository,
 )
 from xerama.services.asset_service import AssetService
+from xerama.services.character_casting_service import CharacterCastingService
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -47,6 +49,12 @@ def get_asset_service(
     storage: LocalStorageProvider = Depends(get_storage_provider),
 ) -> AssetService:
     return AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session))
+
+
+def get_character_casting_service(
+    session: AsyncSession = Depends(get_session),
+) -> CharacterCastingService:
+    return CharacterCastingService(repo=SQLAlchemyCharacterCastingRepository(session))
 
 
 def get_project_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyProjectRepository:

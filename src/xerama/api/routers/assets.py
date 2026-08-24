@@ -15,11 +15,16 @@ async def list_assets(
     project_id: str,
     series_id: str | None = None,
     episode_id: str | None = None,
+    character_id: str | None = None,
     asset_type: AssetType | None = None,
     service: AssetService = Depends(get_asset_service),
 ) -> list[Asset]:
     return await service.list_by_ownership(
-        project_id, series_id=series_id, episode_id=episode_id, asset_type=asset_type
+        project_id,
+        series_id=series_id,
+        episode_id=episode_id,
+        character_id=character_id,
+        asset_type=asset_type,
     )
 
 
@@ -78,6 +83,7 @@ async def upload_asset(
     asset_type: AssetType,
     series_id: str | None = None,
     episode_id: str | None = None,
+    character_id: str | None = None,
     scene_number: int | None = None,
     shot_number: int | None = None,
     service: AssetService = Depends(get_asset_service),
@@ -90,6 +96,7 @@ async def upload_asset(
         project_id=project_id,
         series_id=series_id,
         episode_id=episode_id,
+        character_id=character_id,
         scene_number=scene_number,
         shot_number=shot_number,
     )
