@@ -453,3 +453,38 @@ class ShotVideoProduction(Base):
     approved_take_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     extracted_last_frame_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class VoiceProfile(Base):
+    """One row per character - see MODULE-034. Mirrors StyleBible's
+    one-per-owner, lock/version (not full history) pattern."""
+
+    __tablename__ = "voice_profiles"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    character_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), default="")
+    provider_voice_id: Mapped[str] = mapped_column(String(128), default="")
+    language: Mapped[str] = mapped_column(String(16), default="en")
+    style: Mapped[str] = mapped_column(Text, default="")
+    pronunciation_dictionary: Mapped[dict] = mapped_column(JSON, default=dict)
+    provenance: Mapped[dict] = mapped_column(JSON, default=dict)
+    locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ShotAudioProduction(Base):
+    """Per-shot dialogue/audio workflow record - see MODULE-035.
+    Individual takes are `Asset` rows (type=audio), not duplicated here."""
+
+    __tablename__ = "shot_audio_productions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    episode_id: Mapped[str] = mapped_column(ForeignKey("episodes.id"), index=True)
+    scene_number: Mapped[int] = mapped_column(Integer)
+    shot_number: Mapped[int] = mapped_column(Integer)
+    audio_mode: Mapped[str] = mapped_column(String(16), default="native")
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    approved_take_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)

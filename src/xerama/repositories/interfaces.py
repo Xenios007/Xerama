@@ -12,6 +12,7 @@ from typing import Protocol
 from pydantic import BaseModel, Field
 
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetStatus, AssetType
+from xerama.domain.audio_production import ShotAudioProduction
 from xerama.domain.brief import CreativeBrief
 from xerama.domain.canon import CanonEvent
 from xerama.domain.character import Character, CharacterCast, PhysicalStateVariant, WardrobeVariant
@@ -23,7 +24,8 @@ from xerama.domain.storyboard import Storyboard
 from xerama.domain.story import ConceptCandidate, JudgeResult
 from xerama.domain.style_bible import StyleBible
 from xerama.domain.video_production import ShotVideoProduction
-from xerama.domain.enums import JobStage, JobStatus
+from xerama.domain.voice import VoiceProfile
+from xerama.domain.enums import JobStage, JobStatus, AudioMode
 
 
 class ProjectRecord(BaseModel):
@@ -334,3 +336,36 @@ class VideoProductionRepository(Protocol):
     async def set_extracted_last_frame(self, production_id: str, asset_id: str) -> ShotVideoProduction: ...
 
     async def list_by_episode(self, episode_id: str) -> list[ShotVideoProduction]: ...
+
+
+class VoiceProfileRepository(Protocol):
+    """One row per character - see MODULE-034."""
+
+    async def get_or_create(self, character_id: str) -> VoiceProfile: ...
+
+    async def save(self, voice_profile: VoiceProfile) -> VoiceProfile:
+        """Persists every field over the existing row. Raises `ValueError`
+        if the voice profile does not already exist."""
+        ...
+
+    async def set_lock(self, character_id: str, locked: bool) -> VoiceProfile: ...
+
+    async def unlock_and_bump_version(self, character_id: str) -> VoiceProfile: ...
+
+
+class AudioProductionRepository(Protocol):
+    """Per-shot dialogue/audio workflow records - see MODULE-035."""
+
+    async def get_or_create(
+        self,
+        episode_id: str,
+        scene_number: int,
+        shot_number: int,
+        audio_mode: AudioMode = AudioMode.NATIVE,
+    ) -> ShotAudioProduction: ...
+
+    async def get(self, production_id: str) -> ShotAudioProduction | None: ...
+
+    async def approve(self, production_id: str, asset_id: str) -> ShotAudioProduction: ...
+
+    async def list_by_episode(self, episode_id: str) -> list[ShotAudioProduction]: ...

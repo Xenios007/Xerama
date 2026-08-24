@@ -19,15 +19,17 @@ from xerama.domain.character import (
     RelationshipState,
     WardrobeVariant,
 )
-from xerama.domain.enums import JobStage, JobStatus
+from xerama.domain.enums import AudioMode, JobStage, JobStatus
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan, Scene as SceneDTO, Shot as ShotDTO
+from xerama.domain.audio_production import ShotAudioProduction
 from xerama.domain.season import SeasonPlan
 from xerama.domain.storyboard import Storyboard
 from xerama.domain.story import ConceptCandidate, JudgeResult, SeriesBible
 from xerama.domain.style_bible import StyleBible
 from xerama.domain.video_production import ShotVideoProduction
+from xerama.domain.voice import VoiceProfile
 from xerama.repositories.interfaces import (
     EpisodeRecord,
     JobRecord,
@@ -1148,3 +1150,134 @@ class SQLAlchemyVideoProductionRepository:
             select(m.ShotVideoProduction).where(m.ShotVideoProduction.episode_id == episode_id)
         )
         return [_video_production(row) for row in result.scalars()]
+
+
+def _voice_profile(row: m.VoiceProfile) -> VoiceProfile:
+    return VoiceProfile(
+        id=row.id,
+        character_id=row.character_id,
+        provider=row.provider,
+        provider_voice_id=row.provider_voice_id,
+        language=row.language,
+        style=row.style,
+        pronunciation_dictionary=row.pronunciation_dictionary,
+        provenance=CharacterProvenance.model_validate(row.provenance) if row.provenance else CharacterProvenance(),
+        locked=row.locked,
+        version=row.version,
+    )
+
+
+class SQLAlchemyVoiceProfileRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_or_create(self, character_id: str) -> VoiceProfile:
+        result = await self._session.execute(
+            select(m.VoiceProfile).where(m.VoiceProfile.character_id == character_id)
+        )
+        row = result.scalars().first()
+        if row is None:
+            row = m.VoiceProfile(character_id=character_id)
+            self._session.add(row)
+            await self._session.flush()
+        return _voice_profile(row)
+
+    async def save(self, voice_profile: VoiceProfile) -> VoiceProfile:
+        row = await self._session.get(m.VoiceProfile, voice_profile.id)
+        if row is None:
+            raise ValueError(f"voice profile {voice_profile.id} not found")
+        row.provider = voice_profile.provider
+        row.provider_voice_id = voice_profile.provider_voice_id
+        row.language = voice_profile.language
+        row.style = voice_profile.style
+        row.pronunciation_dictionary = voice_profile.pronunciation_dictionary
+        row.provenance = voice_profile.provenance.model_dump(mode="json")
+        row.locked = voice_profile.locked
+        row.version = voice_profile.version
+        await self._session.flush()
+        return _voice_profile(row)
+
+    async def set_lock(self, character_id: str, locked: bool) -> VoiceProfile:
+        result = await self._session.execute(
+            select(m.VoiceProfile).where(m.VoiceProfile.character_id == character_id)
+        )
+        row = result.scalars().first()
+        if row is None:
+            raise ValueError(f"voice profile for character {character_id} not found")
+        row.locked = locked
+        await self._session.flush()
+        return _voice_profile(row)
+
+    async def unlock_and_bump_version(self, character_id: str) -> VoiceProfile:
+        result = await self._session.execute(
+            select(m.VoiceProfile).where(m.VoiceProfile.character_id == character_id)
+        )
+        row = result.scalars().first()
+        if row is None:
+            raise ValueError(f"voice profile for character {character_id} not found")
+        row.locked = False
+        row.version += 1
+        await self._session.flush()
+        return _voice_profile(row)
+
+
+def _audio_production(row: m.ShotAudioProduction) -> ShotAudioProduction:
+    return ShotAudioProduction(
+        id=row.id,
+        episode_id=row.episode_id,
+        scene_number=row.scene_number,
+        shot_number=row.shot_number,
+        audio_mode=AudioMode(row.audio_mode),
+        status=row.status,
+        approved_take_asset_id=row.approved_take_asset_id,
+    )
+
+
+class SQLAlchemyAudioProductionRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_or_create(
+        self,
+        episode_id: str,
+        scene_number: int,
+        shot_number: int,
+        audio_mode: AudioMode = AudioMode.NATIVE,
+    ) -> ShotAudioProduction:
+        result = await self._session.execute(
+            select(m.ShotAudioProduction).where(
+                m.ShotAudioProduction.episode_id == episode_id,
+                m.ShotAudioProduction.scene_number == scene_number,
+                m.ShotAudioProduction.shot_number == shot_number,
+            )
+        )
+        row = result.scalars().first()
+        if row is None:
+            row = m.ShotAudioProduction(
+                episode_id=episode_id,
+                scene_number=scene_number,
+                shot_number=shot_number,
+                audio_mode=audio_mode.value,
+            )
+            self._session.add(row)
+            await self._session.flush()
+        return _audio_production(row)
+
+    async def get(self, production_id: str) -> ShotAudioProduction | None:
+        row = await self._session.get(m.ShotAudioProduction, production_id)
+        return _audio_production(row) if row is not None else None
+
+    async def approve(self, production_id: str, asset_id: str) -> ShotAudioProduction:
+        row = await self._session.get(m.ShotAudioProduction, production_id)
+        if row is None:
+            raise ValueError(f"audio production {production_id} not found")
+        row.status = "approved"
+        row.approved_take_asset_id = asset_id
+        await self._session.flush()
+        return _audio_production(row)
+
+    async def list_by_episode(self, episode_id: str) -> list[ShotAudioProduction]:
+        result = await self._session.execute(
+            select(m.ShotAudioProduction).where(m.ShotAudioProduction.episode_id == episode_id)
+        )
+        return [_audio_production(row) for row in result.scalars()]
