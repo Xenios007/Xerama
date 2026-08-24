@@ -4,7 +4,7 @@ _Last updated: 2026-08-24_
 
 ## Research goal
 
-Xerama is a practical attempt to reproduce the already-working AI microdrama production pattern using public knowledge and available commercial/open models. We will begin with free tiers/trials, measure failures, and pay only where tests demonstrate a useful quality/cost improvement.
+Xerama is a practical attempt to reproduce the already-working AI microdrama production pattern using public knowledge, open-source systems, research papers, and available commercial/open models. We will begin with free tiers/trials, measure failures, and pay only where tests demonstrate a useful quality/cost improvement.
 
 The documents in this repository are hypotheses and implementation guidance, not immutable specifications. Trial-and-error is expected.
 
@@ -25,30 +25,79 @@ The documents in this repository are hypotheses and implementation guidance, not
 - `research/PRODUCTION_PIPELINE_REVERSE_ENGINEERING.md` — reconstructed production workflow
 - `research/MODEL_AND_TOOL_LANDSCAPE.md` — model/tool layers and provider-routing strategy
 - `research/CHARACTER_CONTINUITY_PLAYBOOK.md` — identity/reference workflow
+- `research/ACTOR_LIKENESS_AND_CHARACTER_DESIGN.md` — real actors, licensed likeness, synthetic casting, archetype references, and rights metadata
+- `research/OPEN_SOURCE_SYSTEMS_TO_STUDY.md` — working public systems and architecture patterns to reverse engineer
+- `research/RESEARCH_PAPERS_AND_BENCHMARKS.md` — DramaDirector, One Sentence One Drama, Co-Director, benchmark lessons
+- `research/FREE_FIRST_MODEL_STRATEGY.md` — OpenRouter free/pinned model experiments and paid-model promotion rules
+- `research/PRODUCTION_STACK_2026.md` — current LLM/image/video/voice/lipsync/edit/QC stack
 - `research/TRIAL_01_EXPERIMENT_PLAN.md` — free-first 3-episode pilot plan
+- `research/CODING_READINESS_CHECKLIST.md` — remaining research/implementation decisions before coding
 
 ## High-confidence findings
-
-The strongest cross-source consensus is:
 
 1. AI microdrama production is already commercially viable at scale.
 2. The pipeline matters more than any single model.
 3. Character/reference locking is essential.
-4. Story/script/shot planning happens before expensive generation.
-5. Episodes are assembled from individual generated shots/clips.
-6. Image/reference frames are valuable anchors for video.
-7. Different video models can be routed to different shot types.
-8. Regeneration/retakes must be budgeted and measured.
-9. Persistent assets and state are necessary for series consistency.
-10. Subtitles/localization are integral to distribution.
-11. Production economics improve sharply when assets and workflows are reusable.
+4. Real performers can participate through licensed digital likeness/performance capture, but commercial Xerama should not depend on unauthorized celebrity replicas.
+5. Original synthetic performers should be reusable identity assets with permanent root references.
+6. Story/script/shot planning happens before expensive generation.
+7. Episodes are assembled from individual generated shots/clips.
+8. Storyboard/first/reference frames are valuable anchors for video.
+9. Different video models can be routed to different shot types.
+10. Reviewer loops and targeted regeneration are preferable to regenerating whole episodes.
+11. Persistent canon, visual assets, and state are necessary for series consistency.
+12. Deterministic editing is preferable once generated assets are approved.
+13. Benchmark telemetry is required before deciding whether a paid model is worth the cost.
+14. Multiple open-source projects already implement large parts of the architecture Xerama needs.
+
+## Existing systems that deserve source-level study
+
+- Wind Comic: https://github.com/ChrisChen667788/wind-comic
+- AI Short Film: https://github.com/wushaojun321/ai-short-film
+- StoryMind: https://github.com/LinHao-city/StoryMind
+- AI Video Pipeline: https://github.com/0xadvait/ai-video-pipeline
+- DramaDirector: https://github.com/iLearn-Lab/DramaDirector
+- MovieAgent: https://github.com/showlab/MovieAgent
+- Awesome AI Short Drama index: https://github.com/PAMPAS-Lab/awesome-ai-short-drama
+
+## Key research papers
+
+- One Sentence, One Drama: https://arxiv.org/abs/2605.22144
+- DramaDirector: https://arxiv.org/abs/2606.24107
+- Co-Director: https://arxiv.org/abs/2604.24842
+- Agentic Video Generation / GEST: https://arxiv.org/abs/2604.10383
+
+## Actor likeness / digital performer sources
+
+- Shortical / Aki Avni case: https://www.thewrap.com/media-platforms/tv/shortical-ai-generated-microdrama-aki-avni-inevitable-ofir-lobel/
+- Reuters / Ironblood real-actor AI production: https://www.reuters.com/business/media-telecom/microdramas-boom-shrinking-hollywood-studios-chase-tiktok-audience-2026-08-18/
+- SAG-AFTRA AI TV/Theatrical guidance: https://www.sagaftra.org/sites/default/files/sa_documents/AI%20TVTH.pdf
+- California digital-replica protections: https://www.gov.ca.gov/2024/09/17/governor-newsom-signs-bills-to-protect-digital-likeness-of-performers/
+- Philippine Digital Likeness and Deepfake Regulation Act proposal: https://senate.gov.ph/legislative-documents/bills/615670
+
+## Official model/platform documentation
+
+- OpenRouter free router: https://openrouter.ai/docs/guides/routing/routers/free-router
+- OpenRouter structured outputs: https://openrouter.ai/docs/guides/features/structured-outputs
+- OpenRouter model catalog: https://openrouter.ai/models
+- Runway References: https://help.runwayml.com/hc/en-us/articles/40042718905875-Creating-with-Gen-4-Image-References
+- Runway API models: https://docs.dev.runwayml.com/guides/models/
+- Google Veo: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/veo/3-0-generate-001
+
+## Production/studio workflow sources
+
+These are useful operational sources but can market their own products/services; claims should be validated during Xerama trials.
+
+- Ogun Studios: https://ogunstudios.com/blog/how-to-make-ai-short-drama
+- MinionArts: https://www.minionarts.com/blogs/how-to-make-ai-microdrama-2026-workflow
+- MinionArts node pipeline: https://www.minionarts.com/blogs/how-ai-microdramas-are-made-node-based-pipeline
 
 ## Important uncertainties to test ourselves
 
-- Which free OpenRouter LLMs are best for concept, dialogue, judge, and continuity?
+- Which free OpenRouter models are best for concept, dialogue, judge, and continuity?
 - How much does two-model candidate generation improve story quality?
-- Which image generator gives us the best identity lock per dollar?
-- Which current video model gives the lowest cost per accepted second for each shot type?
+- Which image generator gives the best identity lock per accepted image?
+- Which video model gives the lowest cost per accepted second for each shot type?
 - Is native dialogue/audio good enough, or do we need TTS + lip sync?
 - How many reference images are optimal per character/provider?
 - What is our real retake rate?
@@ -56,63 +105,8 @@ The strongest cross-source consensus is:
 - How much human approval is required to reach publishable quality?
 - At what point does a paid model materially outperform free/trial alternatives?
 
-## Primary/strong reporting sources
-
-- Reuters — U.S./global microdrama growth and production adoption:
-  https://www.reuters.com/business/media-telecom/microdramas-boom-shrinking-hollywood-studios-chase-tiktok-audience-2026-08-18/
-- Caixin Global — China AI short-drama production economics/timing:
-  https://www.caixinglobal.com/2026-03-17/chinas-short-drama-makers-rush-to-ride-ai-boom-as-production-costs-plunge-102423944.html
-- CNA — China AI filmmaking/microdrama adoption:
-  https://www.channelnewsasia.com/east-asia/ai-microdrama-china-film-industry-actors-jobs-6229191
-- Xinhua — production hubs, AI adoption, usable footage, output:
-  https://english.news.cn/20260421/478dab52b4a147ae800b2dbb64bf7626/c.html
-
-## Official model documentation
-
-- Google Veo model docs:
-  https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/veo/3-0-generate-001
-- Google Veo first/last frame generation:
-  https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-first-and-last-frames
-- Google Veo reference images:
-  https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/use-reference-images-to-guide-video-generation
-- OpenRouter catalog:
-  https://openrouter.ai/models
-
-## Production/studio workflow sources
-
-These are useful operational sources but can also market their own products/services; claims should be validated during Xerama trials.
-
-- Ogun Studios:
-  https://ogunstudios.com/blog/how-to-make-ai-short-drama
-  https://ogunstudios.com/blog/how-ai-micro-dramas-are-produced
-  https://ogunstudios.com/blog/ai-character-consistency-micro-drama
-- MinionArts:
-  https://www.minionarts.com/blogs/how-to-make-ai-microdrama-2026-workflow
-  https://www.minionarts.com/blogs/how-ai-microdramas-are-made-node-based-pipeline
-  https://www.minionarts.com/blogs/ai-microdrama-tool-stack-2026
-- Seedance Review workflow:
-  https://seedancereview.com/blog/seedance-ai-short-drama-workflow/
-- MajoFlow workflow:
-  https://majoflow.com/en/resources/ai-video-animation-workflow/
-- InVideo microdrama workflow:
-  https://invideo.io/blog/ai-micro-drama-script-to-episode/
-
-## Open-source workflow reference
-
-- `clipcurator/ai-short-drama-production-workflows`
-  https://github.com/clipcurator/ai-short-drama-production-workflows
-
-This repository contains public templates/workflow material around vertical-drama formats, storyboards, character continuity, and shot packs. We should inspect ideas and patterns, but write Xerama's own implementation rather than copying code/assets with incompatible licensing.
-
-## Community evidence
-
-Community posts are useful for failure modes and hands-on techniques, not authoritative benchmarks.
-
-- Seedance character consistency discussion:
-  https://www.reddit.com/r/aivideos/comments/1smtzb9/seedance_20_character_consistency_across_shots/
-- AI short-drama asset workflow discussion:
-  https://www.reddit.com/r/Seedance_AI/comments/1taqeiv/two_weeks_into_ai_short_drama_the_wall_isnt/
-
 ## Research rule for coding phase
 
 When implementation starts, every external model/provider integration should be treated as an adapter behind a Xerama capability contract. No production workflow should depend on one vendor continuing to expose today's exact model/version.
+
+Any external source code reused in Xerama must have its license and source commit recorded first.
