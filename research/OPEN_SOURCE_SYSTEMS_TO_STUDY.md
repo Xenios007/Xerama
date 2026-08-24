@@ -6,47 +6,78 @@ _Last researched: 2026-08-24_
 
 Before writing Xerama from scratch, inspect working public implementations and borrow architectural patterns where their licenses allow it. We should copy proven *ideas and patterns*, and reuse source code only when the repository license permits it and attribution/notice requirements are followed.
 
-## 1. Wind Comic
+## 1. Wind Comic — primary implementation reference
 
 Repository:
 - https://github.com/ChrisChen667788/wind-comic
 
-License: MIT at time of research.
+Dedicated source-level analysis:
+- `research/WIND_COMIC_DEEP_DIVE.md`
 
-Why it matters: this is currently one of the closest public analogues to Xerama. Its advertised pipeline is:
+License: MIT at time of research. Pin the exact commit before any code reuse and review bundled dependency licenses separately.
+
+### Why it matters
+
+Wind Comic is currently the closest public analogue to Xerama and has now been reviewed at source level rather than only through README claims. Its implemented/advertised system covers specialist agents, character/style locking, provider routing, generation jobs, quality gates, retakes/versioning, cost attribution, multi-episode memory, FFmpeg composition and vertical-drama-specific audits.
+
+Its high-level production shape is:
 
 ```text
-idea
+idea/source
 → Writer
 → Director
 → Style Bible
 → Character Designer
 → Scene Designer
 → Storyboard
-→ Video
-→ TTS
-→ Lip Sync
+→ Image/Video generation
+→ Vision QC / retry
+→ TTS/native audio
+→ Lip Sync where needed
 → Editor
+→ publish gate
 → final MP4
 ```
 
-Useful implementation ideas to inspect:
+### Patterns Xerama should adopt early
 
-- provider-agnostic LLM configuration
-- multiple specialist agents rather than one giant prompt
-- reusable characters
-- Style Bible Frame
-- structured character DNA injected into shot prompts
-- vision audit and automatic regeneration
-- character resemblance scoring and retry
-- pacing audit
-- vertical-drama trope templates
-- subtitle post-processing rather than asking video models to render text
-- multiple video engines
-- per-stage concurrency
-- final timeline/editor
+- provider-agnostic LLM configuration;
+- specialist agents/stages rather than one giant prompt;
+- capability-bearing image/video provider adapters;
+- provider health/circuit breaking and fallback;
+- reusable root character references;
+- structured Character DNA injected into shot prompts;
+- centralized consistency/reference policy;
+- Style Bible Frame;
+- character resemblance scoring and automatic retry;
+- style vision audit and automatic retry;
+- vertical-drama hook/pacing/cliffhanger logic;
+- conflict-curve analysis;
+- dialogue coverage audit;
+- mobile 9:16 composition rules;
+- rich shot contracts and temporal micro-beats;
+- storyboard/sketch layout before final render;
+- previous-video-last-frame continuity;
+- persistent series memory/recaps and anchor propagation;
+- persistent generation jobs;
+- content-addressed/persistent assets;
+- SQLite-to-Postgres abstraction pattern;
+- local-to-object-storage abstraction pattern;
+- cost attribution by provider/stage/shot;
+- take/retake/version lineage;
+- targeted/segment retake concept;
+- FFmpeg/ffprobe deterministic finishing;
+- pass/warn/block quality/publish gates;
+- native audio + TTS/lipsync hybrid strategy;
+- stale/dirty dependency concepts for rerunning only affected stages.
 
-The project specifically documents a useful continuity tradeoff: higher video concurrency can weaken a previous-frame continuity chain, so sequential generation may be necessary inside a connected shot sequence.
+### Continuity tradeoff
+
+The project documents a useful scheduling tradeoff: higher video concurrency improves throughput but can weaken previous-frame continuity. Xerama should therefore parallelize independent shots while allowing sequential generation inside continuity groups.
+
+### What not to copy into V1
+
+Wind Comic also contains collaboration, billing, plan gating, rich timeline UI, team workspace and other product features. These prove production maturity but are not required for Xerama Trial 01. We should copy the production architecture first, not the entire product surface.
 
 ## 2. AI Short Film Production System
 
@@ -70,17 +101,17 @@ Screenplay
 
 Techniques worth copying:
 
-- FastAPI backend
-- React/TypeScript frontend
-- MongoDB persistence
-- Celery + Redis queues split by LLM/image/video/merge work
-- OpenRouter LLM gateway
-- character face lock
-- look lock for hair/costume/accessories
-- three canonical character views
-- review gates before expensive generation
-- `last_frame_url` chaining between connected shots
-- parallelization across independent segments
+- FastAPI backend;
+- React/TypeScript frontend;
+- MongoDB persistence;
+- Celery + Redis queues split by LLM/image/video/merge work;
+- OpenRouter LLM gateway;
+- character face lock;
+- look lock for hair/costume/accessories;
+- three canonical character views;
+- review gates before expensive generation;
+- `last_frame_url` chaining between connected shots;
+- parallelization across independent segments.
 
 This is especially relevant to Xerama's planned backend/task architecture.
 
@@ -91,14 +122,14 @@ Repository:
 
 Useful concepts:
 
-- storyboard-first generation
-- structured shot scale/camera/lighting fields
-- CharacterSheet descriptions injected verbatim into every relevant shot
-- SceneConsistencyTracker for color/lighting anchors
-- provider scoring/routing
-- budget governance and pre-execution cost estimation
-- FFmpeg/Remotion assembly
-- approval points at creative decisions
+- storyboard-first generation;
+- structured shot scale/camera/lighting fields;
+- CharacterSheet descriptions injected verbatim into every relevant shot;
+- SceneConsistencyTracker for color/lighting anchors;
+- provider scoring/routing;
+- budget governance and pre-execution cost estimation;
+- FFmpeg/Remotion assembly;
+- approval points at creative decisions.
 
 ## 4. AI Video Pipeline
 
@@ -120,11 +151,11 @@ story
 
 Important ideas:
 
-- every shot exists as a still before video
-- same character reference sheet passed into scene generation
-- keyframe bridging with start/end images
-- API-call manifests containing prompt/model/timing information
-- generation is reproducible and auditable
+- every shot exists as a still before video;
+- same character reference sheet passed into scene generation;
+- keyframe bridging with start/end images;
+- API-call manifests containing prompt/model/timing information;
+- generation is reproducible and auditable.
 
 ## 5. DramaDirector
 
@@ -140,19 +171,19 @@ This is important because it studies *short-drama-specific cinematography* rathe
 
 Key ideas:
 
-- structured storyboard schema
-- shot scale
-- camera angle
-- camera motion
-- character position
-- action/expression
-- duration
-- dialogue/speaker/emotion
-- retrieve real short-drama depth/pose patterns
-- first-frame generation before video synthesis
-- text-visual alignment reward
+- structured storyboard schema;
+- shot scale;
+- camera angle;
+- camera motion;
+- character position;
+- action/expression;
+- duration;
+- dialogue/speaker/emotion;
+- retrieve real short-drama depth/pose patterns;
+- first-frame generation before video synthesis;
+- text-visual alignment reward.
 
-DramaBoard contains data derived from 35 live-action dramas, 2.8K episodes, and 81K shots according to the paper. Xerama should study its schema and evaluation design even if we do not reproduce its training pipeline initially.
+DramaBoard contains data derived from 35 live-action dramas, 2.8K episodes and 81K shots according to the paper. Xerama should study its schema and evaluation design even if we do not reproduce its training pipeline initially.
 
 ## 6. MovieAgent
 
@@ -166,33 +197,36 @@ Useful older reference for hierarchical agent planning and character assets. Its
 Repository:
 - https://github.com/PAMPAS-Lab/awesome-ai-short-drama
 
-This is a living index of short-drama-specific systems, research, benchmarks, agent skills, and production tools. Re-check it before major architecture decisions because the field is moving quickly.
+This is a living index of short-drama-specific systems, research, benchmarks, agent skills and production tools. Re-check it before major architecture decisions because the field is moving quickly.
 
 Projects listed there include Wind Comic, OnlyShot, dramai, ViMax, MovieAgent, MM-StoryAgent, DramaDirector and others.
 
 ## Research conclusion
 
-We should not invent Xerama's core workflow from nothing. Public systems independently converge on the same architecture:
+We should not invent Xerama's core workflow from nothing. Public systems independently converge on the same architecture, and Wind Comic now gives us a particularly deep implementation reference:
 
 ```text
 structured story
-→ canonical assets
+→ canonical state/assets
+→ style/character locks
 → storyboard
 → first/reference frames
-→ short video shots
-→ reviewer/retry
+→ provider-routed short video shots
+→ automated reviewer/retry
 → audio/lipsync
 → deterministic editor
+→ final quality gate
 ```
 
-Xerama's opportunity is to combine the best patterns into a simpler production system optimized specifically for **serialized vertical microdrama**, free-first experimentation, automatic benchmarking, and later paid-model routing.
+Xerama's opportunity is to combine the best patterns into a simpler production system optimized specifically for **serialized vertical microdrama**, free-first experimentation, automatic benchmarking, structured canon and later paid-model routing.
 
 ## Code reuse rule
 
 Before copying source code from another repository:
 
 1. verify its current LICENSE;
-2. record repository URL + commit SHA;
+2. record repository URL + exact commit SHA;
 3. preserve required copyright/license notices;
-4. do not assume a GitHub repository is commercially reusable merely because it is public;
-5. prefer adapting architecture/patterns when licensing is unclear.
+4. review relevant dependency licenses;
+5. do not assume a GitHub repository is commercially reusable merely because it is public;
+6. prefer adapting architecture/patterns when licensing is unclear.
