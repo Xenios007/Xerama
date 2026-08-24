@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-039 (Subtitle Engine)._
+_Last updated: 2026-08-25 - MODULE-041/042/043 (Job Queue, Worker Architecture, Retry/Recovery)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -78,7 +78,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 371 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 400 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -896,6 +896,91 @@ intent" (the other original gap) is now covered by MODULE-033's
   (domain, generation incl. cumulative-timing/multi-speaker/special-
   character export, readability validator, repository idempotent-replace/
   language-scoping, service, and end-to-end API coverage).
+
+### MODULE-041 / MODULE-042 / MODULE-043 - Job Queue, Worker Architecture, Retry/Recovery
+
+Built together as one cohesive delivery since 042/043 build directly on
+041's queue mechanics and an inert queue nobody drains isn't useful on its
+own.
+
+- **Scope decision (important):** this does **not** migrate the existing
+  synchronous pipeline (`Showrunner`/`EpisodeEngine`/`StoryboardService`/
+  etc. via `JobRunner`) onto the new async queue - that would be a large,
+  high-risk rewrite of already-tested, working code far beyond "simplest
+  reversible solution." `JobRunner`'s `create`/`start`/`succeed`/`fail`
+  path is untouched and still what every existing pipeline stage uses.
+  Instead, this adds a genuinely new, parallel **capability** -
+  `enqueue`/`claim`/worker execution - that new deferred work (e.g. future
+  real media-provider calls) can use, satisfying "long media generation no
+  longer *has to* block an HTTP request" without forcing every current
+  call site to migrate immediately.
+- **`GenerationJob` extended** (`db/models.py`) - `priority`, `payload`
+  (JSON - what a worker needs to actually redo the work later, since the
+  old synchronous path never needed this), `depends_on_job_id` (single-
+  dependency gate, not a full DAG - "keep it simple" per the module's own
+  "where needed"), `scheduled_at` (retry backoff / delayed start),
+  `max_attempts`, `lease_owner`/`lease_expires_at` (claim lease for crash
+  recovery). All additive/nullable-or-defaulted - existing `JobRunner`
+  rows are unaffected. Migration adds explicit `server_default` values
+  (not just Python-level defaults) so it stays forward-compatible with a
+  non-empty `generation_jobs` table - verified directly by inserting a
+  pre-existing row before applying the migration and confirming it gets
+  sane defaults rather than the migration failing outright.
+- **`JobRepository` queue methods** (additive alongside the existing
+  `create`/`start`/`succeed`/`fail`) - `enqueue`, `claim` (atomic:
+  capability-filters on `scheduled_at`/dependency, then an optimistic
+  `UPDATE ... WHERE status='queued'` so two racing workers can't both win
+  the same job - verified with a genuine two-session concurrent-claim
+  test), `heartbeat` (lease extension, rejects a caller that isn't the
+  current lease holder), `succeed_job`, `fail_job_attempt` (retriable +
+  attempts remaining -> requeue with exponential backoff, capped at 5
+  minutes; otherwise -> terminal `failed` = the dead-letter state, with
+  `error` as the operator-visible reason), `cancel` (no-op on an
+  already-terminal job), `recover_abandoned` (requeues any `running` job
+  whose lease expired - the crash-recovery mechanism), `list_queued`,
+  `list_failed`.
+- **`worker/job_worker.py:JobWorker`** - `register_handler(stage, handler)`
+  builds the stage-handler registry; `run_once` claims one job and
+  dispatches it; `run_forever` runs `concurrency` claim/process lanes with
+  graceful shutdown via an `asyncio.Event`, sweeping `recover_abandoned`
+  once on startup. Retry classification reuses `ProviderError`/
+  `ProviderErrorKind.retriable` (Module 06/07's existing taxonomy, not a
+  second error system): a handler raising `ProviderError` gets its
+  `.retriable` flag honored; any other exception is dead-lettered
+  immediately (an unclassified bug should never retry blindly). Depends
+  only on the `JobRepository` Protocol, so it stays swappable for a future
+  Redis/Celery/RQ-backed queue. "Idempotent handlers where practical" is
+  satisfied by leaning on Module 04's content-addressed storage (a handler
+  re-run after a crash never double-writes media bytes) rather than
+  building a separate idempotency-key system. Per-provider concurrency
+  limits (beyond the existing `ProviderHealthTracker` circuit-breaking) are
+  a documented, deliberately deferred refinement - no real provider exists
+  yet to make that limit meaningful.
+- **API** - `POST /jobs/enqueue`, `GET /jobs/queued`, `GET /jobs/failed`,
+  `POST /jobs/{id}/cancel`. Registered *before* `inspect.router` in
+  `app.py` - `inspect.py`'s existing `GET /jobs/{job_id}` would otherwise
+  shadow the new static `/jobs/queued`/`/jobs/failed` paths (Starlette
+  matches routes in registration order); left `GET /jobs/{job_id}` itself
+  in `inspect.py` rather than duplicating it.
+- **Migration** - `alembic/versions/516daeedc39b_add_job_queue_fields.py`.
+- Acceptance criteria met: jobs can be enqueued and claimed transactionally
+  with priority/dependency/scheduled-retry support (041); the API can
+  enqueue work and a `JobWorker` can finish it independently via a
+  registered handler (042); a process/provider failure resumes safely from
+  the last durable checkpoint - retriable failures requeue with backoff,
+  permanent failures dead-letter with an operator-visible reason, and an
+  abandoned lease gets reclaimed rather than losing the job (043) -
+  verified by 30 new tests (repository queue mechanics including the
+  genuine claim-race test, worker dispatch/retry/dead-letter/lifecycle,
+  and end-to-end API coverage) plus the full existing suite staying green.
+  One real bug found and fixed during this work: SQLAlchemy's dirty-
+  attribute tracking silently drops an attribute from an UPDATE if its
+  in-memory value round-trips back to its originally-loaded value before a
+  flush (`claim()` set `status` to `running` then `fail_job_attempt()` set
+  it back to `queued` in the same unflushed transaction) - fixed by using
+  `AsyncSession.refresh()` to resync the ORM object from the DB after
+  `claim()`'s raw Core-level UPDATE instead of mirroring the update via
+  plain attribute assignment.
 
 ## Partially implemented
 

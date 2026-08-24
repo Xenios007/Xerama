@@ -4,6 +4,33 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-041 / MODULE-042 / MODULE-043 - Job Queue, Worker Architecture, Retry/Recovery)
+
+- `GenerationJob` gains queue fields (`priority`, `payload`,
+  `depends_on_job_id`, `scheduled_at`, `max_attempts`, `lease_owner`,
+  `lease_expires_at`) - additive alongside the existing synchronous
+  `JobRunner` path, which is untouched.
+- `JobRepository`: `enqueue`/`claim` (atomic, race-safe -
+  `UPDATE ... WHERE status='queued'`)/`heartbeat`/`succeed_job`/
+  `fail_job_attempt` (retriable -> requeue with exponential backoff;
+  otherwise -> dead-letter)/`cancel`/`recover_abandoned`/`list_queued`/
+  `list_failed`.
+- `worker/job_worker.py:JobWorker`: stage-handler registry,
+  `run_once`/`run_forever` with graceful shutdown and concurrency lanes.
+  Retry classification reuses `ProviderError`/`ProviderErrorKind` (no
+  second error-classification system).
+- New API: `POST /jobs/enqueue`, `GET /jobs/queued`, `GET /jobs/failed`,
+  `POST /jobs/{id}/cancel`.
+- Migration with explicit `server_default` values, verified
+  forward-compatible against a non-empty `generation_jobs` table.
+- 30 new tests (repository queue mechanics incl. a genuine two-session
+  claim-race test, worker dispatch/retry/dead-letter/lifecycle, API).
+- Fixed a real SQLAlchemy dirty-attribute-tracking bug found while
+  building this: an in-memory attribute that round-trips back to its
+  originally-loaded value before a flush gets silently dropped from the
+  UPDATE - fixed via `AsyncSession.refresh()` after `claim()`'s raw
+  Core-level update.
+
 ### Added (MODULE-021 gap closure - Director Engine)
 
 - `Shot.production_priority` (`ProductionPriority`: low/normal/high,
