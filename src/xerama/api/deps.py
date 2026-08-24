@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.pipeline.episode_engine import EpisodeEngine
 from xerama.pipeline.orchestrator import Showrunner
+from xerama.providers.local_storage import LocalStorageProvider
 from xerama.repositories.sqlalchemy_impl import (
+    SQLAlchemyAssetRepository,
     SQLAlchemyConceptRepository,
     SQLAlchemyEpisodeRepository,
     SQLAlchemyJobRepository,
@@ -18,6 +20,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemySeasonRepository,
     SQLAlchemySeriesRepository,
 )
+from xerama.services.asset_service import AssetService
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -33,6 +36,17 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 def get_gateway(request: Request) -> AIGateway:
     return request.app.state.ai_gateway
+
+
+def get_storage_provider(request: Request) -> LocalStorageProvider:
+    return request.app.state.storage_provider
+
+
+def get_asset_service(
+    session: AsyncSession = Depends(get_session),
+    storage: LocalStorageProvider = Depends(get_storage_provider),
+) -> AssetService:
+    return AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session))
 
 
 def get_project_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyProjectRepository:
