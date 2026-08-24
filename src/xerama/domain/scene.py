@@ -7,7 +7,7 @@ No media generation happens in XER-001. This schema exists so later stages
 
 from pydantic import BaseModel, Field
 
-from xerama.domain.enums import AudioMode, BlockingDepth, ScreenPosition
+from xerama.domain.enums import AudioMode, BlockingDepth, ProductionPriority, ScreenPosition
 
 
 class Camera(BaseModel):
@@ -113,6 +113,7 @@ class Shot(BaseModel):
     shot_number: int
     scene_number: int
     narrative_function: str = ""
+    production_priority: ProductionPriority = ProductionPriority.NORMAL
     character_ids: list[str] = Field(default_factory=list)
     dialogue: str = ""
     action: str = ""

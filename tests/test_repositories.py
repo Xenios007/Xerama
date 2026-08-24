@@ -2,7 +2,15 @@ import pytest
 
 from xerama.domain.brief import CreativeBrief
 from xerama.domain.character import Character, CharacterCast, CharacterDNA, RelationshipState
-from xerama.domain.enums import CanonChangeType, CliffhangerType, JobStage, JudgeDecision, QCStatus, ScreenPosition
+from xerama.domain.enums import (
+    CanonChangeType,
+    CliffhangerType,
+    JobStage,
+    JudgeDecision,
+    ProductionPriority,
+    QCStatus,
+    ScreenPosition,
+)
 from xerama.domain.canon import CanonEvent
 from xerama.domain.episode import Cliffhanger, DialogueLine, EpisodeOutline, EpisodeScript, ScriptScene
 from xerama.domain.quality import QCResult
@@ -223,6 +231,7 @@ async def test_episode_outline_script_shots_and_qc_roundtrip(session) -> None:
                             characters=[CharacterBlock(character_id="CHAR_001", position=ScreenPosition.LEFT)],
                             screen_direction="left_to_right",
                         ),
+                        production_priority=ProductionPriority.HIGH,
                     )
                 ],
             )
@@ -236,6 +245,7 @@ async def test_episode_outline_script_shots_and_qc_roundtrip(session) -> None:
     assert fetched_plan.scenes[0].shots[0].camera.shot_size == "close-up"
     assert fetched_plan.scenes[0].shots[0].blocking_plan.screen_direction == "left_to_right"
     assert fetched_plan.scenes[0].shots[0].blocking_plan.characters[0].position == ScreenPosition.LEFT
+    assert fetched_plan.scenes[0].shots[0].production_priority == ProductionPriority.HIGH
 
     await episode_repo.save_quality_report(
         record.id, QCResult(gate="retention", status=QCStatus.PASS, score=9.0)

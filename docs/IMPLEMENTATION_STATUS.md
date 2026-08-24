@@ -78,7 +78,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 370 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 371 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -593,6 +593,14 @@ explicit format validation yet (low-risk - nothing currently sets them to
 an invalid value), and `AIGateway` has no explicit cancellation-token
 API (Python task cancellation already propagates through its `await`
 points, so this is judged already-adequate rather than a gap).
+
+**MODULE-021 gap closed:** the one genuinely missing field noted during
+this audit - "production priority per scene/shot" - is now
+`Shot.production_priority: ProductionPriority` (`low`/`normal`/`high`,
+default `normal`; `domain/enums.py`). Purely informational until a
+worker/scheduler (MODULE-041/042) exists to act on it. "Performance
+intent" (the other original gap) is now covered by MODULE-033's
+`MicroBeat.pose/expression/gaze` fields. MODULE-021 is fully closed.
 
 ### MODULE-022 - Scene Blocking
 

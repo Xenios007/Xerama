@@ -315,6 +315,7 @@ class Shot(Base):
     duration_seconds: Mapped[float] = mapped_column(Float, default=5.0)
     character_ids: Mapped[list] = mapped_column(JSON, default=list)
     narrative_function: Mapped[str] = mapped_column(String(128), default="")
+    production_priority: Mapped[str] = mapped_column(String(16), default="normal")
     action: Mapped[str] = mapped_column(Text, default="")
     dialogue: Mapped[str] = mapped_column(Text, default="")
     camera: Mapped[dict] = mapped_column(JSON, default=dict)

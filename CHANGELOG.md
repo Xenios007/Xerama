@@ -4,6 +4,13 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-021 gap closure - Director Engine)
+
+- `Shot.production_priority` (`ProductionPriority`: low/normal/high,
+  default normal) - the one field missing from the earlier MODULE-021
+  audit. Purely informational until a worker/scheduler exists to act on
+  it (MODULE-041/042). MODULE-021 is now fully closed.
+
 ### Added (MODULE-039 - Subtitle Engine)
 
 - `SubtitleCue`: text/wrapped-lines/timing/optional character attribution

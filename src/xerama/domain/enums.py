@@ -117,6 +117,17 @@ class AudioMode(str, Enum):
     HYBRID = "hybrid"
 
 
+class ProductionPriority(str, Enum):
+    """See MODULE-021 - Director Engine: "production priority per scene/
+    shot." A router/scheduler can use this to sequence expensive media
+    generation (e.g. hero shots before b-roll) once one exists
+    (MODULE-041/042); purely informational until then."""
+
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+
+
 class ScreenPosition(str, Enum):
     """See MODULE-022 - lightweight left/center/right blocking, extensible
     to real coordinates later. Deliberately five positions, not a

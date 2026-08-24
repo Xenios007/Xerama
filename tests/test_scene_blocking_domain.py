@@ -1,4 +1,4 @@
-from xerama.domain.enums import BlockingDepth, ScreenPosition
+from xerama.domain.enums import BlockingDepth, ProductionPriority, ScreenPosition
 from xerama.domain.scene import CharacterBlock, MovementBeat, SceneBlocking, Shot
 
 
@@ -15,6 +15,16 @@ def test_shot_blocking_plan_defaults_to_none() -> None:
     shot = Shot(shot_number=1, scene_number=1, duration_seconds=5.0)
     assert shot.blocking_plan is None
     assert shot.blocking == ""
+
+
+def test_shot_production_priority_defaults_to_normal() -> None:
+    shot = Shot(shot_number=1, scene_number=1, duration_seconds=5.0)
+    assert shot.production_priority == ProductionPriority.NORMAL
+
+    high_priority = Shot(
+        shot_number=1, scene_number=1, duration_seconds=5.0, production_priority=ProductionPriority.HIGH
+    )
+    assert high_priority.production_priority == ProductionPriority.HIGH
 
 
 def test_scene_blocking_round_trips_through_json() -> None:
