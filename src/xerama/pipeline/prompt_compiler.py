@@ -7,10 +7,11 @@ research/WIND_COMIC_DEEP_DIVE.md section 23) and is directly exercised by
 the determinism tests.
 """
 
-from xerama.domain.character import Character, CharacterCast
+from xerama.domain.character import Character, CharacterCast, format_character_dna
 from xerama.domain.generation_request import CompiledReferences, ShotGenerationRequest
 from xerama.domain.scene import EpisodeShotPlan, Scene, Shot
 from xerama.domain.story import SeriesBible
+from xerama.services.consistency_policy import ConsistencyPolicy
 
 # A stable, deterministic default negative-constraint set. Real per-project
 # negatives (from a Style Bible - Module 06) can be appended later; this is
@@ -27,6 +28,9 @@ DEFAULT_NEGATIVE_CONSTRAINTS: tuple[str, ...] = (
 
 
 class PromptCompiler:
+    def __init__(self, consistency_policy: ConsistencyPolicy | None = None) -> None:
+        self._consistency_policy = consistency_policy or ConsistencyPolicy()
+
     def compile_episode(
         self, plan: EpisodeShotPlan, cast: CharacterCast, bible: SeriesBible
     ) -> list[ShotGenerationRequest]:
@@ -40,13 +44,20 @@ class PromptCompiler:
         self, shot: Shot, scene: Scene, cast: CharacterCast, bible: SeriesBible
     ) -> ShotGenerationRequest:
         characters_in_shot = [c for c in cast.characters if c.id in shot.character_ids]
+        # Reference selection is delegated to the centralized policy - see
+        # ADR-014, "Individual generation stages should not independently
+        # improvise reference strategy."
+        selections = self._consistency_policy.select_for_shot(characters_in_shot)
+        character_asset_ids = [
+            asset_id for selection in selections for asset_id in selection.reference_asset_ids
+        ]
 
         return ShotGenerationRequest(
             shot_number=shot.shot_number,
             scene_number=scene.scene_number,
             prompt=self._compose_prompt(shot, scene, characters_in_shot, bible),
             negative_prompt=", ".join(DEFAULT_NEGATIVE_CONSTRAINTS),
-            character_dna=[self._format_character_dna(c) for c in characters_in_shot],
+            character_dna=[format_character_dna(c) for c in characters_in_shot],
             style_dna="",  # populated once a Style Bible exists (Module 06)
             duration_seconds=shot.duration_seconds,
             camera=shot.camera,
@@ -54,7 +65,7 @@ class PromptCompiler:
             blocking=shot.blocking,
             audio_mode=shot.audio_mode,
             references=CompiledReferences(
-                character_asset_ids=[c.visual_identity_id or c.id for c in characters_in_shot],
+                character_asset_ids=character_asset_ids,
                 style_asset_id=shot.references.style_asset_id,
                 location_asset_id=shot.references.location_asset_id,
                 prop_asset_ids=shot.references.prop_asset_ids,
@@ -63,25 +74,6 @@ class PromptCompiler:
             provider_requirements=shot.provider_requirements,
             continuity_group=shot.continuity_group,
         )
-
-    def _format_character_dna(self, character: Character) -> str:
-        dna = character.character_dna
-        parts = [
-            p
-            for p in (
-                dna.eyes,
-                dna.face_shape,
-                dna.nose,
-                dna.mouth,
-                dna.hairstyle,
-                dna.hair_color,
-                dna.skin_tone,
-                dna.signature_outfit,
-            )
-            if p
-        ]
-        signature = ", ".join(parts) if parts else character.description
-        return f"{character.name}: {signature}" if signature else character.name
 
     def _compose_prompt(
         self, shot: Shot, scene: Scene, characters: list[Character], bible: SeriesBible

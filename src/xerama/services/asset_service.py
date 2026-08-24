@@ -93,10 +93,15 @@ class AssetService:
         project_id: str,
         series_id: str | None = None,
         episode_id: str | None = None,
+        character_id: str | None = None,
         asset_type: AssetType | None = None,
     ) -> list[Asset]:
         return await self._asset_repo.list_by_ownership(
-            project_id, series_id=series_id, episode_id=episode_id, asset_type=asset_type
+            project_id,
+            series_id=series_id,
+            episode_id=episode_id,
+            character_id=character_id,
+            asset_type=asset_type,
         )
 
     async def accept(self, asset_id: str) -> Asset:
