@@ -1,14 +1,15 @@
-"""Storyboard/keyframe workflow service (Module 06).
+"""Storyboard/keyframe workflow service (Module 06, provider selection
+generalized in Module 07).
 
 "approved shot -> rough storyboard/layout -> compiled references -> final
 keyframe -> QC state -> accept/retry." The caller compiles the
 `ShotGenerationRequest` (Module 03's `PromptCompiler`, now consulting
-Module 05's `ConsistencyPolicy` and this module's Style Bible) and hands it
-in; this service resolves those reference ids to actual bytes, rejects an
-incompatible provider before spending a generation request (see
-research/PRODUCTION_STACK_2026.md "Provider contract"), and persists the
-result as a durable `Asset` via `AssetService` (Module 04) - never a new
-media-storage mechanism of its own.
+Module 05's `ConsistencyPolicy` and Module 06's Style Bible) and hands it
+in; this service resolves those reference ids to actual bytes, asks the
+`MediaProviderRouter` for a capability-eligible, healthy provider (falling
+back across registered image providers on failure - Module 07), and
+persists the result as a durable `Asset` via `AssetService` (Module 04) -
+never a new media-storage mechanism of its own.
 """
 
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetType
@@ -17,11 +18,7 @@ from xerama.domain.storyboard import Storyboard
 from xerama.providers.image import ImageGenerationRequest, ImageProvider
 from xerama.repositories.interfaces import StoryboardRepository
 from xerama.services.asset_service import AssetService
-
-
-class UnsupportedProviderCapabilityError(ValueError):
-    """Raised when a request needs something the chosen `ImageProvider`
-    cannot do - before any generation call is made."""
+from xerama.services.media_router import MediaProviderRouter
 
 
 class StoryboardService:
@@ -50,11 +47,10 @@ class StoryboardService:
         storyboard_id: str,
         project_id: str,
         request: ShotGenerationRequest,
-        image_provider: ImageProvider,
+        image_router: MediaProviderRouter[ImageProvider],
         series_id: str | None = None,
     ) -> Asset:
         storyboard = await self.get(storyboard_id)
-        self._reject_if_incompatible(image_provider, request)
 
         reference_ids = list(request.references.character_asset_ids)
         if request.references.style_asset_id:
@@ -71,16 +67,26 @@ class StoryboardService:
                 # than fail; the prompt/DNA text still carries the identity.
                 continue
             reference_images.append(await self._asset_service.read_bytes(asset_id))
-        reference_images = reference_images[: image_provider.capabilities.max_reference_images]
+        wants_references = bool(reference_images)
 
-        data = await image_provider.generate(
-            ImageGenerationRequest(
-                prompt=request.prompt,
-                negative_prompt=request.negative_prompt,
-                aspect_ratio=request.aspect_ratio,
-            ),
-            reference_images,
-        )
+        def is_compatible(provider: ImageProvider) -> bool:
+            capabilities = provider.capabilities
+            if request.aspect_ratio not in capabilities.supported_aspects:
+                return False
+            return not (wants_references and not capabilities.supports_reference_images)
+
+        async def call(provider: ImageProvider) -> bytes:
+            bounded = reference_images[: provider.capabilities.max_reference_images]
+            return await provider.generate(
+                ImageGenerationRequest(
+                    prompt=request.prompt,
+                    negative_prompt=request.negative_prompt,
+                    aspect_ratio=request.aspect_ratio,
+                ),
+                bounded,
+            )
+
+        provider, data, attempts = await image_router.generate(is_compatible, call)
 
         take_number = await self._next_take_number(project_id, storyboard)
         return await self._asset_service.ingest_bytes(
@@ -94,7 +100,9 @@ class StoryboardService:
                 shot_number=storyboard.shot_number,
             ),
             provenance=AssetProvenance(
-                provider=image_provider.name, source_reference_asset_ids=reference_ids
+                provider=provider.name,
+                source_reference_asset_ids=reference_ids,
+                generation_params={"routing_attempts": [a.model_dump() for a in attempts]},
             ),
             mime_type="image/png",
             ext=".png",
@@ -151,22 +159,3 @@ class StoryboardService:
     async def _next_take_number(self, project_id: str, storyboard: Storyboard) -> int:
         existing = await self.list_keyframes(project_id, storyboard)
         return max((a.take_number for a in existing), default=0) + 1
-
-    def _reject_if_incompatible(
-        self, image_provider: ImageProvider, request: ShotGenerationRequest
-    ) -> None:
-        capabilities = image_provider.capabilities
-        if request.aspect_ratio not in capabilities.supported_aspects:
-            raise UnsupportedProviderCapabilityError(
-                f"{image_provider.name} does not support aspect ratio {request.aspect_ratio!r} "
-                f"(supports {capabilities.supported_aspects})"
-            )
-        wants_references = bool(
-            request.references.character_asset_ids
-            or request.references.style_asset_id
-            or request.references.location_asset_id
-        )
-        if wants_references and not capabilities.supports_reference_images:
-            raise UnsupportedProviderCapabilityError(
-                f"{image_provider.name} does not support reference images"
-            )
