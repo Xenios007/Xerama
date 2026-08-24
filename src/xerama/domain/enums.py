@@ -45,6 +45,7 @@ class JobStage(str, Enum):
     CONCEPT_MERGE = "concept_merge"
     SERIES_BIBLE = "series_bible"
     CHARACTERS = "characters"
+    SEASON_PLAN = "season_plan"
     EPISODE_OUTLINES = "episode_outlines"
     EPISODE_SCRIPT = "episode_script"
     SCENE_SHOT_PLANNING = "scene_shot_planning"
@@ -127,6 +128,29 @@ class ProviderErrorKind(str, Enum):
     INVALID_REQUEST = "invalid_request"
     TRANSIENT_FAILURE = "transient_failure"
     UNKNOWN = "unknown"
+
+
+class ThreadStatus(str, Enum):
+    """Status of a season-level mystery or promise/payoff thread."""
+
+    OPEN = "open"
+    PARTIAL = "partial"
+    RESOLVED = "resolved"
+
+
+class SeasonPlanStatus(str, Enum):
+    DRAFT = "draft"
+    APPROVED = "approved"
+
+
+class ArcStage(str, Enum):
+    """Where a character-arc milestone sits in a change arc."""
+
+    SETUP = "setup"
+    TEST = "test"
+    CRISIS = "crisis"
+    CHANGE = "change"
+    RESOLUTION = "resolution"
 
 
 class CanonChangeType(str, Enum):
