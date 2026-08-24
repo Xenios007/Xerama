@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - Module 02 (Multi-Episode Engine)._
+_Last updated: 2026-08-25 - Module 03 (Director & Prompt Compiler)._
 
 This tracks what actually exists in `src/xerama` against the architecture in
 `docs/` and `research/`, per the project rule "when implementation reveals
@@ -69,7 +69,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 87 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 108 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -147,6 +147,40 @@ documentation - do not silently diverge."
 - **Migration** - `alembic/versions/a6445d655373_add_episode_version.py`
   (`episodes.version`).
 
+### Module 03 - Director & Prompt Compiler
+
+- **Extended Shot contract** (`domain/scene.py`) - added `blocking` (free
+  text, deliberately not a coordinate system - "avoid overengineering
+  spatial blocking V1"), `continuity_group` (adjacent shots that must
+  generate sequentially and chain last->first frame, ADR-017), and
+  `provider_requirements` (`ProviderRequirements`: text/image-to-video,
+  first/last-frame, subject-reference, native-audio flags a future
+  Module 07 router can filter providers on) - all optional/defaulted, no
+  break to existing shot plans.
+- **`DirectorValidator`** (`pipeline/director_validators.py`) - three
+  deterministic, non-blocking production-readiness checks distinct from
+  story QC: `check_vertical_composition` (missing framing/composition,
+  crowded shots without a wide/full shot_size), `check_dialogue_coverage`
+  (a multi-speaker scene needs at least one single/reaction shot, not only
+  a continuous two-shot - research/WIND_COMIC_DEEP_DIVE.md section 7), and
+  `check_continuity_grouping` (a `continuity_group` must be a contiguous
+  shot run - BLOCK if not - and every shot but the group's last should set
+  `last_frame_required`). Run for every shot-plan attempt in `EpisodeEngine`
+  and persisted as `QualityReport` rows; they never gate canon commit
+  (production readiness is a separate concern from narrative canon).
+- **`PromptCompiler`** (`pipeline/prompt_compiler.py` +
+  `domain/generation_request.py:ShotGenerationRequest`) - pure/deterministic
+  compiler combining shot intent + Character DNA (formatted from
+  `CharacterDNA` structured fields, falling back to `description`) + shot
+  references + a stable default negative-constraint set into one
+  provider-neutral request per shot. No vendor syntax anywhere in the
+  domain model - see the module's "Do not put Runway/Kling/Veo/etc. syntax
+  into domain models" instruction. Exposed via
+  `GET /episodes/{id}/generation-requests` (compiled on demand, not
+  persisted - it's a pure function of already-persisted data).
+- **Migration** - `alembic/versions/42f264e2c041_add_shot_director_fields.py`
+  (`shots.blocking`, `shots.continuity_group`, `shots.provider_requirements`).
+
 ## Partially implemented
 
 - **Character/Style identity** - the textual/structural layer (`Character`,
@@ -171,7 +205,9 @@ documentation - do not silently diverge."
 - Analytics/learning feedback loop (Phase 5).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
-- See `modules/README.md` for the full remaining module list (03-14).
+- See `modules/README.md` for the full remaining module list (04-14).
+- Style Bible (Module 06) does not exist yet, so `ShotGenerationRequest.style_dna`
+  is always `""` for now - populated once a real Style Bible asset exists.
 - `Showrunner.run()` still auto-generates only Episode 1 end-to-end (by
   design - see deviation below); episodes 2..N require an explicit
   `EpisodeEngine` call (API or code).

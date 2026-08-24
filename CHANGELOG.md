@@ -4,6 +4,25 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (Module 03 - Director & Prompt Compiler)
+
+- Extended the `Shot` contract: `blocking` (free-text, not a coordinate
+  system), `continuity_group`, `provider_requirements`
+  (`ProviderRequirements`: T2V/I2V, first/last-frame, subject-reference,
+  native-audio flags).
+- `DirectorValidator`: deterministic vertical-composition,
+  dialogue-coverage, and continuity-grouping checks - production-readiness
+  QC, separate from and never blocking story canon commit.
+- `PromptCompiler` + `ShotGenerationRequest`: pure, deterministic
+  provider-neutral prompt compilation (shot intent + Character DNA + shot
+  references + default negative constraints), with no vendor-specific
+  syntax in the domain model. New `GET /episodes/{id}/generation-requests`
+  endpoint compiles the approved shot plan on demand.
+- Migration for the new `shots` columns.
+- 21 new unit tests (shot-contract validation, all three director checks,
+  prompt-compilation determinism/reference-selection/negative-constraints)
+  plus an API test for the new endpoint.
+
 ### Added (Module 02 - Multi-Episode Engine)
 
 - `EpisodeEngine`: generate/regenerate any episode (`generate_episode`),
