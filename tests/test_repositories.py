@@ -2,11 +2,11 @@ import pytest
 
 from xerama.domain.brief import CreativeBrief
 from xerama.domain.character import Character, CharacterCast, CharacterDNA, RelationshipState
-from xerama.domain.enums import CanonChangeType, CliffhangerType, JobStage, JudgeDecision, QCStatus
+from xerama.domain.enums import CanonChangeType, CliffhangerType, JobStage, JudgeDecision, QCStatus, ScreenPosition
 from xerama.domain.canon import CanonEvent
 from xerama.domain.episode import Cliffhanger, DialogueLine, EpisodeOutline, EpisodeScript, ScriptScene
 from xerama.domain.quality import QCResult
-from xerama.domain.scene import Camera, EpisodeShotPlan, Scene, Shot, Visual
+from xerama.domain.scene import Camera, CharacterBlock, EpisodeShotPlan, Scene, SceneBlocking, Shot, Visual
 from xerama.domain.story import CandidateScore, JudgeCriteria, JudgeResult, Protagonist, ConceptCandidate
 from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyConceptRepository,
@@ -219,6 +219,10 @@ async def test_episode_outline_script_shots_and_qc_roundtrip(session) -> None:
                         duration_seconds=4,
                         camera=Camera(shot_size="close-up"),
                         visual=Visual(emotion="dread"),
+                        blocking_plan=SceneBlocking(
+                            characters=[CharacterBlock(character_id="CHAR_001", position=ScreenPosition.LEFT)],
+                            screen_direction="left_to_right",
+                        ),
                     )
                 ],
             )
@@ -230,6 +234,8 @@ async def test_episode_outline_script_shots_and_qc_roundtrip(session) -> None:
     fetched_plan = await episode_repo.get_shot_plan(record.id)
     assert fetched_plan is not None
     assert fetched_plan.scenes[0].shots[0].camera.shot_size == "close-up"
+    assert fetched_plan.scenes[0].shots[0].blocking_plan.screen_direction == "left_to_right"
+    assert fetched_plan.scenes[0].shots[0].blocking_plan.characters[0].position == ScreenPosition.LEFT
 
     await episode_repo.save_quality_report(
         record.id, QCResult(gate="retention", status=QCStatus.PASS, score=9.0)

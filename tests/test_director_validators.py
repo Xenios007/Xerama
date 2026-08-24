@@ -1,6 +1,15 @@
-from xerama.domain.enums import QCStatus
+from xerama.domain.enums import BlockingDepth, QCStatus, ScreenPosition
 from xerama.domain.episode import DialogueLine, EpisodeScript, ScriptScene
-from xerama.domain.scene import Camera, EpisodeShotPlan, ProviderRequirements, Scene, Shot, Visual
+from xerama.domain.scene import (
+    Camera,
+    CharacterBlock,
+    EpisodeShotPlan,
+    ProviderRequirements,
+    Scene,
+    SceneBlocking,
+    Shot,
+    Visual,
+)
 from xerama.pipeline.director_validators import DirectorValidator
 
 
@@ -131,3 +140,92 @@ def test_continuity_grouping_warns_when_mid_group_shot_missing_last_frame_flag()
     result = DirectorValidator().check_continuity_grouping(plan)
     assert result.status == QCStatus.WARN
     assert any("last_frame_required is false" in r for r in result.reasons)
+
+
+def test_scene_blocking_passes_when_no_plan_is_set() -> None:
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[_shot()])])
+    result = DirectorValidator().check_scene_blocking(plan)
+    assert result.status == QCStatus.PASS
+
+
+def test_scene_blocking_passes_for_valid_multi_character_plan() -> None:
+    shot = _shot(
+        character_ids=["CHAR_001", "CHAR_002"],
+        blocking_plan=SceneBlocking(
+            characters=[
+                CharacterBlock(character_id="CHAR_001", position=ScreenPosition.LEFT, speaking=True),
+                CharacterBlock(character_id="CHAR_002", position=ScreenPosition.RIGHT, reacting=True),
+            ],
+            screen_direction="left_to_right",
+        ),
+    )
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[shot])])
+    result = DirectorValidator().check_scene_blocking(plan)
+    assert result.status == QCStatus.PASS
+
+
+def test_scene_blocking_blocks_missing_character_block_entry() -> None:
+    shot = _shot(
+        character_ids=["CHAR_001", "CHAR_002"],
+        blocking_plan=SceneBlocking(
+            characters=[CharacterBlock(character_id="CHAR_001", position=ScreenPosition.LEFT)]
+        ),
+    )
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[shot])])
+    result = DirectorValidator().check_scene_blocking(plan)
+    assert result.status == QCStatus.BLOCK
+    assert any("missing CharacterBlock entries" in r for r in result.reasons)
+
+
+def test_scene_blocking_warns_on_undocumented_overlap() -> None:
+    shot = _shot(
+        character_ids=["CHAR_001", "CHAR_002"],
+        blocking_plan=SceneBlocking(
+            characters=[
+                CharacterBlock(character_id="CHAR_001", position=ScreenPosition.CENTER, depth=BlockingDepth.MIDGROUND),
+                CharacterBlock(character_id="CHAR_002", position=ScreenPosition.CENTER, depth=BlockingDepth.MIDGROUND),
+            ]
+        ),
+    )
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[shot])])
+    result = DirectorValidator().check_scene_blocking(plan)
+    assert result.status == QCStatus.WARN
+    assert any("without a documented occlusion" in r for r in result.reasons)
+
+
+def test_scene_blocking_allows_overlap_when_occlusion_is_documented() -> None:
+    shot = _shot(
+        character_ids=["CHAR_001", "CHAR_002"],
+        blocking_plan=SceneBlocking(
+            characters=[
+                CharacterBlock(character_id="CHAR_001", position=ScreenPosition.CENTER),
+                CharacterBlock(
+                    character_id="CHAR_002", position=ScreenPosition.CENTER, occluded_by=["CHAR_001"]
+                ),
+            ]
+        ),
+    )
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=[shot])])
+    result = DirectorValidator().check_scene_blocking(plan)
+    assert result.status == QCStatus.PASS
+
+
+def test_scene_blocking_warns_on_screen_direction_flip_within_continuity_group() -> None:
+    shots = [
+        _shot(
+            shot_number=1,
+            character_ids=[],
+            continuity_group="GRP_A",
+            blocking_plan=SceneBlocking(screen_direction="left_to_right"),
+        ),
+        _shot(
+            shot_number=2,
+            character_ids=[],
+            continuity_group="GRP_A",
+            blocking_plan=SceneBlocking(screen_direction="right_to_left"),
+        ),
+    ]
+    plan = EpisodeShotPlan(episode_number=1, scenes=[Scene(scene_number=1, location="apt", shots=shots)])
+    result = DirectorValidator().check_scene_blocking(plan)
+    assert result.status == QCStatus.WARN
+    assert any("changes screen_direction" in r for r in result.reasons)
