@@ -49,6 +49,16 @@ documentation - do not silently diverge."
   stage in a persistent `GenerationJob` and persisting each artifact
   immediately so a mid-pipeline failure still leaves earlier stages
   inspectable (verified by `tests/test_orchestrator.py`).
+- **Closed-loop QC retry** - if the shot plan's continuity QC comes back
+  `BLOCK`, the Showrunner regenerates only the shot plan once more with the
+  QC reasons fed back into the prompt (targeted retry, not whole-episode
+  regeneration - ADR-019), before giving up and leaving it `BLOCK` for human
+  review. Every attempt's QC report is persisted, never overwritten.
+- **Canon commit** - an approved episode's `canon_changes` (free text) are
+  now classified into typed `CanonEvent`/`EpisodeStateChange` rows via a
+  keyword heuristic (`pipeline/canon_commit.py`) and committed only when
+  neither retention nor continuity QC ended `BLOCK` - see ADR-006 ("output is
+  not canon until validated").
 - **Retention + continuity validators** (`xerama/pipeline/validators.py`) -
   deterministic heuristics per docs/STORY_FORMULA.md / ADR-018 (pass/warn/
   block + reasons + repair recommendation). Documented as initial heuristics,
@@ -67,11 +77,6 @@ documentation - do not silently diverge."
 
 ## Partially implemented
 
-- **Canon commit** - `EpisodeRepository.save_canon_event` exists and is
-  tested, but the orchestrator does not yet call it automatically: an
-  outline's `canon_changes` are free-text strings, and classifying them into
-  a typed `CanonChangeType` without guessing is not yet implemented. QC
-  results (retention/continuity) *are* persisted and returned every run.
 - **Character/Style identity** - the textual/structural layer (`Character`,
   `CharacterDNA` fields, `visual_identity_id`/`voice_identity_id` slots)
   exists per ADR-012, but no image generation runs yet, so DNA fields are
@@ -122,7 +127,14 @@ consistent enough to start coding per
    requirement, not telemetry. Re-adding per-call telemetry is a small,
    additive change if/when requested again (the gateway already has one
    choke point - `AIGateway.generate` - where it would hook in).
-3. **Model-role -> stage mapping** - the roadmap/AI_MODELS.md role table
+3. **Canon change classification is a keyword heuristic, not an LLM call** -
+   `pipeline/canon_commit.py:classify_change_type` guesses a
+   `CanonChangeType` from the outline's free-text `canon_changes` strings.
+   Nothing downstream currently branches on that type, so a
+   misclassification is a soft/cosmetic issue (the original description is
+   always preserved) rather than a correctness bug. Revisit with an LLM
+   classification call if/when a consumer starts relying on `change_type`.
+4. **Model-role -> stage mapping** - the roadmap/AI_MODELS.md role table
    doesn't say which role owns "series bible", "characters", or "episode
    outlines" specifically. This implementation assigns all three to
    `story_architect` (series/season structure, per its stated

@@ -6,6 +6,18 @@ All notable changes to Xerama are recorded here.
 
 ### Added
 
+- Closed-loop QC retry: a `BLOCK`-level continuity result on the shot plan
+  now triggers one targeted regeneration (script unchanged, shot plan only)
+  with the QC reasons fed back into the prompt, before giving up and leaving
+  the episode `BLOCK` for review (ADR-019). Every attempt's QC report is
+  persisted rather than overwritten.
+- Canon commit: an episode's free-text `canon_changes` are now classified
+  into typed `CanonEvent`/`EpisodeStateChange` rows (keyword heuristic in
+  `pipeline/canon_commit.py`) and committed only when retention and
+  continuity QC did not `BLOCK` (ADR-006).
+- 12 new tests covering the retry loop (success, gives-up-after-max-attempts)
+  and canon-change classification/commit gating.
+
 - Python 3.12 project skeleton (FastAPI, Pydantic v2, SQLAlchemy 2.0 async,
   Alembic, httpx, pytest) - XER-001 core architecture.
 - Domain contracts for concepts, judge results, series bible, characters/
