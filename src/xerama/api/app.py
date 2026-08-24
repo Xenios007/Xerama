@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI
 
-from xerama.api.routers import generation, inspect, projects
+from xerama.api.routers import generation, inspect, projects, season
 from xerama.config import ModelRoleRegistry, Settings, get_settings
 from xerama.db.base import create_all, make_engine, make_session_factory
 from xerama.pipeline.ai_gateway import AIGateway
@@ -61,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(projects.router)
     app.include_router(generation.router)
     app.include_router(inspect.router)
+    app.include_router(season.router)
     return app
 
 

@@ -14,6 +14,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyEpisodeRepository,
     SQLAlchemyJobRepository,
     SQLAlchemyProjectRepository,
+    SQLAlchemySeasonRepository,
     SQLAlchemySeriesRepository,
 )
 
@@ -49,6 +50,10 @@ def get_job_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyJobR
     return SQLAlchemyJobRepository(session)
 
 
+def get_season_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemySeasonRepository:
+    return SQLAlchemySeasonRepository(session)
+
+
 def get_showrunner(
     session: AsyncSession = Depends(get_session), gateway: AIGateway = Depends(get_gateway)
 ) -> Showrunner:
@@ -56,6 +61,7 @@ def get_showrunner(
         gateway=gateway,
         concept_repo=SQLAlchemyConceptRepository(session),
         series_repo=SQLAlchemySeriesRepository(session),
+        season_repo=SQLAlchemySeasonRepository(session),
         episode_repo=SQLAlchemyEpisodeRepository(session),
         job_repo=SQLAlchemyJobRepository(session),
     )
