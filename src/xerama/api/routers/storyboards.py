@@ -30,6 +30,14 @@ class StoryboardCreateRequest(BaseModel):
     layout_description: str = ""
 
 
+class KeyframeEditRequest(BaseModel):
+    instruction: str
+    base_asset_id: str
+    mask_asset_id: str | None = None
+    negative_prompt: str = ""
+    aspect_ratio: str = "9:16"
+
+
 @router.post(
     "/episodes/{episode_id}/scenes/{scene_number}/shots/{shot_number}/storyboard",
     response_model=Storyboard,
@@ -96,6 +104,45 @@ async def generate_keyframe(
         )
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/storyboards/{storyboard_id}/keyframes/edit", response_model=Asset)
+async def edit_keyframe(
+    storyboard_id: str,
+    body: KeyframeEditRequest,
+    service: StoryboardService = Depends(get_storyboard_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    image_router: MediaProviderRouter[ImageProvider] = Depends(get_image_router),
+) -> Asset:
+    """Targeted repair of one existing take (MODULE-030) - full regenerate
+    already exists via `/keyframes/generate` retries; this is the
+    provider-supported edit/mask path for fixing a failed still without
+    touching unrelated production assets."""
+    try:
+        storyboard = await service.get(storyboard_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _, series = await episode_context(storyboard.episode_id, episode_repo, series_repo)
+
+    try:
+        return await service.edit_keyframe(
+            storyboard_id,
+            series.project_id,
+            body.instruction,
+            body.base_asset_id,
+            image_router,
+            mask_asset_id=body.mask_asset_id,
+            negative_prompt=body.negative_prompt,
+            aspect_ratio=body.aspect_ratio,
+            series_id=series.id,
+        )
+    except NoEligibleProviderError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
 
 
 @router.post("/storyboards/{storyboard_id}/keyframes/upload", response_model=Asset)
