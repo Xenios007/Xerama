@@ -29,6 +29,7 @@ from xerama.domain.rights import RightsMetadata
 from xerama.domain.season import SeasonPlan
 from xerama.domain.sound_effect import SoundEffectCue
 from xerama.domain.storyboard import Storyboard
+from xerama.domain.subtitle import SubtitleCue
 from xerama.domain.story import ConceptCandidate, JudgeResult, SeriesBible
 from xerama.domain.style_bible import StyleBible
 from xerama.domain.video_production import ShotVideoProduction
@@ -1438,3 +1439,61 @@ class SQLAlchemySoundEffectCueRepository:
             .order_by(m.SoundEffectCue.start_seconds)
         )
         return [_sound_effect_cue(row) for row in result.scalars()]
+
+
+def _subtitle_cue(row: m.SubtitleCue) -> SubtitleCue:
+    return SubtitleCue(
+        id=row.id,
+        episode_id=row.episode_id,
+        scene_number=row.scene_number,
+        shot_number=row.shot_number,
+        character_id=row.character_id,
+        language=row.language,
+        text=row.text,
+        lines=row.lines,
+        start_seconds=row.start_seconds,
+        end_seconds=row.end_seconds,
+    )
+
+
+class SQLAlchemySubtitleCueRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def replace_track(
+        self, episode_id: str, language: str, cues: list[dict]
+    ) -> list[SubtitleCue]:
+        await self._session.execute(
+            delete(m.SubtitleCue).where(
+                m.SubtitleCue.episode_id == episode_id, m.SubtitleCue.language == language
+            )
+        )
+        rows = [
+            m.SubtitleCue(
+                episode_id=episode_id,
+                scene_number=cue["scene_number"],
+                shot_number=cue["shot_number"],
+                character_id=cue.get("character_id"),
+                language=language,
+                text=cue["text"],
+                lines=cue["lines"],
+                start_seconds=cue["start_seconds"],
+                end_seconds=cue["end_seconds"],
+            )
+            for cue in cues
+        ]
+        self._session.add_all(rows)
+        await self._session.flush()
+        return [_subtitle_cue(row) for row in rows]
+
+    async def get(self, cue_id: str) -> SubtitleCue | None:
+        row = await self._session.get(m.SubtitleCue, cue_id)
+        return _subtitle_cue(row) if row is not None else None
+
+    async def list_by_episode(self, episode_id: str, language: str = "en") -> list[SubtitleCue]:
+        result = await self._session.execute(
+            select(m.SubtitleCue)
+            .where(m.SubtitleCue.episode_id == episode_id, m.SubtitleCue.language == language)
+            .order_by(m.SubtitleCue.start_seconds)
+        )
+        return [_subtitle_cue(row) for row in result.scalars()]

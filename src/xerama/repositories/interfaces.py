@@ -23,6 +23,7 @@ from xerama.domain.scene import EpisodeShotPlan
 from xerama.domain.season import SeasonPlan
 from xerama.domain.sound_effect import SoundEffectCue
 from xerama.domain.storyboard import Storyboard
+from xerama.domain.subtitle import SubtitleCue
 from xerama.domain.story import ConceptCandidate, JudgeResult
 from xerama.domain.style_bible import StyleBible
 from xerama.domain.video_production import ShotVideoProduction
@@ -423,3 +424,17 @@ class SoundEffectCueRepository(Protocol):
     async def delete(self, cue_id: str) -> None: ...
 
     async def list_by_episode(self, episode_id: str) -> list[SoundEffectCue]: ...
+
+
+class SubtitleCueRepository(Protocol):
+    """See MODULE-039. `replace_track` deletes every existing cue for
+    (episode_id, language) and inserts the given ones atomically, so
+    regeneration is idempotent rather than accumulating duplicates."""
+
+    async def replace_track(
+        self, episode_id: str, language: str, cues: list[dict]
+    ) -> list[SubtitleCue]: ...
+
+    async def get(self, cue_id: str) -> SubtitleCue | None: ...
+
+    async def list_by_episode(self, episode_id: str, language: str = "en") -> list[SubtitleCue]: ...

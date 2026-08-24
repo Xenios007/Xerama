@@ -527,3 +527,23 @@ class SoundEffectCue(Base):
     rights: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(16), default="draft")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class SubtitleCue(Base):
+    """See MODULE-039. `episode_id` + `language` identifies one subtitle
+    track; regenerating replaces every cue for that (episode, language)
+    pair rather than accumulating duplicates."""
+
+    __tablename__ = "subtitle_cues"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    episode_id: Mapped[str] = mapped_column(ForeignKey("episodes.id"), index=True)
+    scene_number: Mapped[int] = mapped_column(Integer)
+    shot_number: Mapped[int] = mapped_column(Integer)
+    character_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    language: Mapped[str] = mapped_column(String(16), default="en", index=True)
+    text: Mapped[str] = mapped_column(Text)
+    lines: Mapped[list] = mapped_column(JSON, default=list)
+    start_seconds: Mapped[float] = mapped_column(Float)
+    end_seconds: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
