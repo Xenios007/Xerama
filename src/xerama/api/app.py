@@ -15,6 +15,7 @@ from xerama.api.routers import (
     episodes,
     generation,
     inspect,
+    jobs,
     music_cues,
     projects,
     season,
@@ -105,6 +106,11 @@ def create_app() -> FastAPI:
     )
     app.include_router(projects.router)
     app.include_router(generation.router)
+    # jobs.router must be registered before inspect.router - inspect.py's
+    # GET /jobs/{job_id} would otherwise shadow jobs.py's static
+    # /jobs/queued and /jobs/failed paths (Starlette matches routes in
+    # registration order).
+    app.include_router(jobs.router)
     app.include_router(inspect.router)
     app.include_router(season.router)
     app.include_router(episodes.router)
