@@ -81,6 +81,14 @@ class JobRecord(BaseModel):
     model: str = ""
     attempt: int = 1
     error: str = ""
+    # Job-queue fields (MODULE-041) - unused by the existing synchronous
+    # JobRunner path, only by enqueue/claim/heartbeat.
+    priority: int = 0
+    payload: dict = Field(default_factory=dict)
+    depends_on_job_id: str | None = None
+    max_attempts: int = 3
+    lease_owner: str | None = None
+    result_asset_ids: list[str] = Field(default_factory=list)
 
 
 class ProjectRepository(Protocol):
@@ -199,6 +207,50 @@ class JobRepository(Protocol):
     async def fail(self, job_id: str, error: str) -> None: ...
 
     async def get(self, job_id: str) -> JobRecord | None: ...
+
+    # --- Job-queue methods (MODULE-041) - additive, coexist with the
+    # synchronous create/start/succeed/fail path above used by JobRunner.
+    # Nothing here changes existing behavior for existing call sites.
+
+    async def enqueue(
+        self,
+        project_id: str,
+        stage: JobStage,
+        payload: dict,
+        priority: int = 0,
+        series_id: str | None = None,
+        depends_on_job_id: str | None = None,
+        scheduled_at: datetime | None = None,
+        max_attempts: int = 3,
+    ) -> JobRecord: ...
+
+    async def claim(self, worker_id: str, lease_seconds: int = 60) -> JobRecord | None:
+        """Atomically selects and claims the highest-priority, oldest,
+        currently-eligible queued job (dependency satisfied, `scheduled_at`
+        due) and moves it to `running`. Returns `None` if nothing is
+        eligible. Safe against two workers racing for the same job."""
+        ...
+
+    async def heartbeat(self, job_id: str, worker_id: str, lease_seconds: int = 60) -> None: ...
+
+    async def succeed_job(self, job_id: str, result_asset_ids: list[str] | None = None) -> JobRecord: ...
+
+    async def fail_job_attempt(self, job_id: str, error: str, retriable: bool) -> JobRecord:
+        """Retriable + attempts remaining -> requeues with exponential
+        backoff. Otherwise -> terminal `failed` (dead-letter) with `error`
+        as the operator-visible reason."""
+        ...
+
+    async def cancel(self, job_id: str) -> JobRecord: ...
+
+    async def recover_abandoned(self, now: datetime | None = None) -> list[JobRecord]:
+        """Requeues every `running` job whose lease has expired - "recover
+        abandoned running jobs after restart"."""
+        ...
+
+    async def list_queued(self, stage: JobStage | None = None) -> list[JobRecord]: ...
+
+    async def list_failed(self, project_id: str | None = None) -> list[JobRecord]: ...
 
 
 class AssetRepository(Protocol):

@@ -3,6 +3,8 @@
 Protocols, not import this module directly, so a future backend swap stays
 localized (ADR-021)."""
 
+from datetime import datetime, timedelta
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -609,6 +611,35 @@ class SQLAlchemyEpisodeRepository:
         return _episode_record(row) if row is not None else None
 
 
+def _job_record(row: m.GenerationJob) -> JobRecord:
+    return JobRecord(
+        id=row.id,
+        project_id=row.project_id,
+        stage=JobStage(row.stage),
+        status=JobStatus(row.status),
+        provider=row.provider,
+        model=row.model,
+        attempt=row.attempt,
+        error=row.error,
+        priority=row.priority,
+        payload=row.payload,
+        depends_on_job_id=row.depends_on_job_id,
+        max_attempts=row.max_attempts,
+        lease_owner=row.lease_owner,
+        result_asset_ids=row.result_asset_ids,
+    )
+
+
+# Exponential backoff for requeued job attempts, capped at 5 minutes -
+# MODULE-043 "bounded attempts/backoff".
+_BACKOFF_BASE_SECONDS = 5
+_BACKOFF_MAX_SECONDS = 300
+
+
+def _backoff_seconds(attempt: int) -> int:
+    return min(_BACKOFF_MAX_SECONDS, _BACKOFF_BASE_SECONDS * (2 ** max(0, attempt - 1)))
+
+
 class SQLAlchemyJobRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -648,18 +679,166 @@ class SQLAlchemyJobRepository:
 
     async def get(self, job_id: str) -> JobRecord | None:
         row = await self._session.get(m.GenerationJob, job_id)
-        if row is None:
-            return None
-        return JobRecord(
-            id=row.id,
-            project_id=row.project_id,
-            stage=JobStage(row.stage),
-            status=JobStatus(row.status),
-            provider=row.provider,
-            model=row.model,
-            attempt=row.attempt,
-            error=row.error,
+        return _job_record(row) if row is not None else None
+
+    # --- Job-queue methods (MODULE-041) ---
+
+    async def enqueue(
+        self,
+        project_id: str,
+        stage: JobStage,
+        payload: dict,
+        priority: int = 0,
+        series_id: str | None = None,
+        depends_on_job_id: str | None = None,
+        scheduled_at: datetime | None = None,
+        max_attempts: int = 3,
+    ) -> JobRecord:
+        row = m.GenerationJob(
+            project_id=project_id,
+            series_id=series_id,
+            stage=stage.value,
+            status=JobStatus.QUEUED.value,
+            priority=priority,
+            payload=payload,
+            depends_on_job_id=depends_on_job_id,
+            scheduled_at=scheduled_at or utcnow(),
+            max_attempts=max_attempts,
         )
+        self._session.add(row)
+        await self._session.flush()
+        return _job_record(row)
+
+    async def claim(self, worker_id: str, lease_seconds: int = 60) -> JobRecord | None:
+        now = utcnow()
+        result = await self._session.execute(
+            select(m.GenerationJob)
+            .where(
+                m.GenerationJob.status == JobStatus.QUEUED.value,
+                m.GenerationJob.scheduled_at <= now,
+            )
+            .order_by(m.GenerationJob.priority.desc(), m.GenerationJob.created_at.asc())
+        )
+        for row in result.scalars():
+            if row.depends_on_job_id:
+                dependency = await self._session.get(m.GenerationJob, row.depends_on_job_id)
+                if dependency is not None and dependency.status != JobStatus.SUCCEEDED.value:
+                    continue  # dependency not satisfied yet - skip, don't claim
+            # Optimistic claim: a plain UPDATE...WHERE guarded on the state
+            # we just observed. Two workers racing both attempt this; only
+            # the one whose WHERE clause still matches actually updates the
+            # row (SQLAlchemy reports it via rowcount), so the loser simply
+            # doesn't win instead of double-processing the job.
+            claim_result = await self._session.execute(
+                m.GenerationJob.__table__.update()
+                .where(
+                    m.GenerationJob.id == row.id,
+                    m.GenerationJob.status == JobStatus.QUEUED.value,
+                )
+                .values(
+                    status=JobStatus.RUNNING.value,
+                    lease_owner=worker_id,
+                    lease_expires_at=now + timedelta(seconds=lease_seconds),
+                    started_at=now,
+                )
+            )
+            if claim_result.rowcount == 1:
+                # The raw Core UPDATE above bypassed the ORM, so `row`
+                # (identity-mapped from the SELECT) still holds pre-update
+                # values in memory. `refresh()` is the async-safe way to
+                # reload it from the DB - setting the attributes directly
+                # instead would create a "round trip" in SQLAlchemy's dirty-
+                # tracking once a later fail_job_attempt() sets `status`
+                # back toward its originally-loaded value, causing that
+                # attribute to be silently dropped from the next flush's
+                # UPDATE (SQLAlchemy compares against last-loaded value, not
+                # intermediate unflushed writes).
+                await self._session.refresh(row)
+                return _job_record(row)
+        return None
+
+    async def heartbeat(self, job_id: str, worker_id: str, lease_seconds: int = 60) -> None:
+        row = await self._session.get(m.GenerationJob, job_id)
+        if row is None:
+            raise ValueError(f"job {job_id} not found")
+        if row.lease_owner != worker_id:
+            raise PermissionError(f"job {job_id} is not leased by worker {worker_id!r}")
+        row.lease_expires_at = utcnow() + timedelta(seconds=lease_seconds)
+        await self._session.flush()
+
+    async def succeed_job(self, job_id: str, result_asset_ids: list[str] | None = None) -> JobRecord:
+        row = await self._session.get(m.GenerationJob, job_id)
+        if row is None:
+            raise ValueError(f"job {job_id} not found")
+        row.status = JobStatus.SUCCEEDED.value
+        row.result_asset_ids = result_asset_ids or []
+        row.finished_at = utcnow()
+        row.lease_owner = None
+        row.lease_expires_at = None
+        await self._session.flush()
+        return _job_record(row)
+
+    async def fail_job_attempt(self, job_id: str, error: str, retriable: bool) -> JobRecord:
+        row = await self._session.get(m.GenerationJob, job_id)
+        if row is None:
+            raise ValueError(f"job {job_id} not found")
+        row.error = error
+        row.lease_owner = None
+        row.lease_expires_at = None
+        if retriable and row.attempt < row.max_attempts:
+            row.attempt += 1
+            row.status = JobStatus.QUEUED.value
+            row.scheduled_at = utcnow() + timedelta(seconds=_backoff_seconds(row.attempt))
+        else:
+            row.status = JobStatus.FAILED.value  # dead-letter - operator-visible via `error`
+            row.finished_at = utcnow()
+        await self._session.flush()
+        return _job_record(row)
+
+    async def cancel(self, job_id: str) -> JobRecord:
+        row = await self._session.get(m.GenerationJob, job_id)
+        if row is None:
+            raise ValueError(f"job {job_id} not found")
+        if row.status not in (JobStatus.SUCCEEDED.value, JobStatus.FAILED.value, JobStatus.CANCELLED.value):
+            row.status = JobStatus.CANCELLED.value
+            row.finished_at = utcnow()
+            row.lease_owner = None
+            row.lease_expires_at = None
+            await self._session.flush()
+        return _job_record(row)
+
+    async def recover_abandoned(self, now: datetime | None = None) -> list[JobRecord]:
+        now = now or utcnow()
+        result = await self._session.execute(
+            select(m.GenerationJob).where(
+                m.GenerationJob.status == JobStatus.RUNNING.value,
+                m.GenerationJob.lease_expires_at.is_not(None),
+                m.GenerationJob.lease_expires_at < now,
+            )
+        )
+        recovered = []
+        for row in result.scalars():
+            row.status = JobStatus.QUEUED.value
+            row.lease_owner = None
+            row.lease_expires_at = None
+            recovered.append(row)
+        await self._session.flush()
+        return [_job_record(row) for row in recovered]
+
+    async def list_queued(self, stage: JobStage | None = None) -> list[JobRecord]:
+        query = select(m.GenerationJob).where(m.GenerationJob.status == JobStatus.QUEUED.value)
+        if stage is not None:
+            query = query.where(m.GenerationJob.stage == stage.value)
+        query = query.order_by(m.GenerationJob.priority.desc(), m.GenerationJob.created_at.asc())
+        result = await self._session.execute(query)
+        return [_job_record(row) for row in result.scalars()]
+
+    async def list_failed(self, project_id: str | None = None) -> list[JobRecord]:
+        query = select(m.GenerationJob).where(m.GenerationJob.status == JobStatus.FAILED.value)
+        if project_id is not None:
+            query = query.where(m.GenerationJob.project_id == project_id)
+        result = await self._session.execute(query)
+        return [_job_record(row) for row in result.scalars()]
 
 
 def _asset(row: m.Asset) -> Asset:

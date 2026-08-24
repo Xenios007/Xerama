@@ -370,6 +370,17 @@ class GenerationJob(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
+    # Job-queue fields (MODULE-041) - additive, used only by the new
+    # enqueue/claim/heartbeat path; the existing synchronous JobRunner
+    # (create/start/succeed/fail) never touches these.
+    priority: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    depends_on_job_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    scheduled_at: Mapped[datetime] = mapped_column(default=utcnow)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
     project: Mapped["Project"] = relationship(back_populates="jobs")
 
 
