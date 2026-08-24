@@ -12,6 +12,7 @@ from xerama.providers.fake import FakeLLMProvider
 from xerama.providers.fake_image import FakeImageProvider
 from xerama.providers.health import ProviderHealthTracker
 from xerama.providers.local_storage import LocalStorageProvider
+from xerama.services.media_router import MediaProviderRouter
 
 
 @pytest.fixture
@@ -42,7 +43,7 @@ async def client(tmp_path):
     app.state.ai_gateway = gateway
     app.state.storage_provider = LocalStorageProvider(tmp_path / "storage")
     image_provider = FakeImageProvider()
-    app.state.image_provider = image_provider
+    app.state.image_router = MediaProviderRouter([image_provider])
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:

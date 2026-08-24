@@ -8,7 +8,8 @@ from xerama.providers.image import ImageProviderCapabilities
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.repositories.sqlalchemy_impl import SQLAlchemyAssetRepository, SQLAlchemyStoryboardRepository
 from xerama.services.asset_service import AssetService
-from xerama.services.storyboard_service import StoryboardService, UnsupportedProviderCapabilityError
+from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
+from xerama.services.storyboard_service import StoryboardService
 
 from test_storyboard_repository import _episode
 
@@ -50,7 +51,8 @@ async def test_generate_keyframe_ingests_asset(session, storage) -> None:
     await session.commit()
 
     provider = FakeImageProvider([b"keyframe-bytes"])
-    asset = await service.generate_keyframe(storyboard.id, "PROJ_1", _request(), provider)
+    router = MediaProviderRouter([provider])
+    asset = await service.generate_keyframe(storyboard.id, "PROJ_1", _request(), router)
     await session.commit()
 
     assert asset.take_number == 1
@@ -65,9 +67,10 @@ async def test_generate_keyframe_take_numbers_increment_on_retry(session, storag
     await session.commit()
 
     provider = FakeImageProvider([b"take-1", b"take-2"])
-    first = await service.generate_keyframe(storyboard.id, "PROJ_1", _request(), provider)
+    router = MediaProviderRouter([provider])
+    first = await service.generate_keyframe(storyboard.id, "PROJ_1", _request(), router)
     await session.commit()
-    second = await service.generate_keyframe(storyboard.id, "PROJ_1", _request(), provider)
+    second = await service.generate_keyframe(storyboard.id, "PROJ_1", _request(), router)
     await session.commit()
 
     assert first.take_number == 1
@@ -81,21 +84,32 @@ async def test_generate_keyframe_rejects_unsupported_aspect_ratio(session, stora
     await session.commit()
 
     provider = FakeImageProvider(capabilities=ImageProviderCapabilities(supported_aspects=["16:9"]))
-    with pytest.raises(UnsupportedProviderCapabilityError):
-        await service.generate_keyframe(storyboard.id, "PROJ_1", _request(aspect_ratio="9:16"), provider)
+    router = MediaProviderRouter([provider])
+    with pytest.raises(NoEligibleProviderError):
+        await service.generate_keyframe(storyboard.id, "PROJ_1", _request(aspect_ratio="9:16"), router)
     assert provider.calls == []  # rejected before spending a generation request
 
 
 async def test_generate_keyframe_rejects_when_references_unsupported(session, storage) -> None:
+    from xerama.domain.asset import AssetOwnership, AssetType
+
     episode_id = await _episode(session)
-    service = _service(session, storage)
+    asset_service = AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session))
+    service = StoryboardService(
+        storyboard_repo=SQLAlchemyStoryboardRepository(session), asset_service=asset_service
+    )
     storyboard = await service.get_or_create_storyboard(episode_id, 1, 1)
+    reference_asset = await asset_service.ingest_bytes(
+        b"root portrait", AssetType.IMAGE, AssetOwnership(project_id="PROJ_1")
+    )
     await session.commit()
 
     provider = FakeImageProvider(capabilities=ImageProviderCapabilities(supports_reference_images=False))
-    request = _request(references=CompiledReferences(character_asset_ids=["CHAR_001"]))
-    with pytest.raises(UnsupportedProviderCapabilityError):
-        await service.generate_keyframe(storyboard.id, "PROJ_1", request, provider)
+    router = MediaProviderRouter([provider])
+    request = _request(references=CompiledReferences(character_asset_ids=[reference_asset.id]))
+    with pytest.raises(NoEligibleProviderError):
+        await service.generate_keyframe(storyboard.id, "PROJ_1", request, router)
+    assert provider.calls == []  # rejected before spending a generation request
 
 
 async def test_upload_keyframe_manual_fallback(session, storage) -> None:
