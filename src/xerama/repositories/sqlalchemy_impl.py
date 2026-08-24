@@ -458,10 +458,13 @@ class SQLAlchemyEpisodeRepository:
                     dialogue=shot.dialogue,
                     camera=shot.camera.model_dump(mode="json"),
                     visual=shot.visual.model_dump(mode="json"),
+                    blocking=shot.blocking,
                     references=shot.references.model_dump(mode="json"),
                     micro_beats=[mb.model_dump(mode="json") for mb in shot.micro_beats],
                     audio_mode=shot.audio_mode.value,
                     continuity_requirements=shot.continuity_requirements,
+                    continuity_group=shot.continuity_group,
+                    provider_requirements=shot.provider_requirements.model_dump(mode="json"),
                     generation_status=shot.generation_status,
                 )
                 self._session.add(shot_row)
@@ -493,10 +496,13 @@ class SQLAlchemyEpisodeRepository:
                     duration_seconds=sr.duration_seconds,
                     camera=sr.camera,
                     visual=sr.visual,
+                    blocking=sr.blocking,
                     references=sr.references,
                     micro_beats=sr.micro_beats,
                     audio_mode=sr.audio_mode,
                     continuity_requirements=sr.continuity_requirements,
+                    continuity_group=sr.continuity_group,
+                    provider_requirements=sr.provider_requirements,
                     generation_status=sr.generation_status,
                 )
                 for sr in shot_rows.scalars()

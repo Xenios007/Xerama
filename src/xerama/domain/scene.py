@@ -41,6 +41,21 @@ class MicroBeat(BaseModel):
     description: str
 
 
+class ProviderRequirements(BaseModel):
+    """Capabilities this shot needs from whichever video provider ends up
+    generating it - see docs/ARCHITECTURE.md section 6 (Provider Registry).
+    Declared here at the shot level so the Module 07 router can filter
+    eligible providers without the Director knowing vendor names.
+    """
+
+    text_to_video: bool = False
+    image_to_video: bool = True
+    first_frame_required: bool = True
+    last_frame_required: bool = False
+    subject_reference_required: bool = True
+    native_audio_required: bool = False
+
+
 class Shot(BaseModel):
     """See docs/ARCHITECTURE.md section 9 (Shot Contract)."""
 
@@ -53,10 +68,20 @@ class Shot(BaseModel):
     duration_seconds: float = Field(gt=0)
     camera: Camera = Field(default_factory=Camera)
     visual: Visual = Field(default_factory=Visual)
+    # Deliberately free text, not a coordinate/spatial system - see
+    # modules/03_DIRECTOR_PROMPT_COMPILER.md "Avoid overengineering spatial
+    # blocking V1".
+    blocking: str = ""
     references: ShotReferences = Field(default_factory=ShotReferences)
     micro_beats: list[MicroBeat] = Field(default_factory=list)
     audio_mode: AudioMode = AudioMode.NATIVE
     continuity_requirements: list[str] = Field(default_factory=list)
+    # Shots sharing a continuity_group are adjacent and should be generated
+    # sequentially so Shot N's actual last frame can anchor Shot N+1 - see
+    # ADR-017. None means this shot can be generated independently/in
+    # parallel with any other shot.
+    continuity_group: str | None = None
+    provider_requirements: ProviderRequirements = Field(default_factory=ProviderRequirements)
     generation_status: str = "planned"
 
 

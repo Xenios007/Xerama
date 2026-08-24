@@ -289,10 +289,13 @@ class Shot(Base):
     dialogue: Mapped[str] = mapped_column(Text, default="")
     camera: Mapped[dict] = mapped_column(JSON, default=dict)
     visual: Mapped[dict] = mapped_column(JSON, default=dict)
+    blocking: Mapped[str] = mapped_column(Text, default="")
     references: Mapped[dict] = mapped_column(JSON, default=dict)
     micro_beats: Mapped[list] = mapped_column(JSON, default=list)
     audio_mode: Mapped[str] = mapped_column(String(16), default="native")
     continuity_requirements: Mapped[list] = mapped_column(JSON, default=list)
+    continuity_group: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    provider_requirements: Mapped[dict] = mapped_column(JSON, default=dict)
     generation_status: Mapped[str] = mapped_column(String(32), default="planned")
 
     scene: Mapped["Scene"] = relationship(back_populates="shots")
