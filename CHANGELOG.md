@@ -4,6 +4,37 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (Module 05 - Character Casting Studio)
+
+- Extended `Character` with a multi-view `reference_pack`, `identity_provenance`
+  (`CharacterProvenance`: `identity_type` synthetic_original/licensed_authorized
+  + required `consent_reference` when licensed), `locked`, and `version` -
+  a durable, lockable production identity package per character.
+- New `WardrobeVariant`/`CharacterPhysicalStateVariant` records, each with
+  their own reference asset ids - "do not prompt 'same clothes as before'."
+- `CharacterCastingService`: lock/unlock-for-recast (bumps `version`),
+  identity updates blocked (`PermissionError`) while locked, wardrobe/
+  physical-state variants addable regardless of lock state.
+- `ConsistencyPolicy` (ADR-014): centralized, deterministic per-character
+  reference selection (root -> reference-pack views -> wardrobe -> physical
+  state, deduped, capped at a per-provider max) used for both single- and
+  multi-character shots. `PromptCompiler` (Module 03) now delegates to it
+  instead of inlining `visual_identity_id or character.id`; `format_character_dna`
+  moved to `domain/character.py` as a shared function.
+- `IdentityQCProvider` protocol + placeholder pass/block thresholds
+  (`providers/identity_qc.py`) - interface only, multimodal implementation
+  deferred to Module 11 per the module spec.
+- `AssetOwnership.character_id` so identity/wardrobe/physical-state assets
+  can be attributed to a character independent of episode/scene/shot.
+- New API: `GET/POST /characters/{id}[/lock|/unlock|/identity|/provenance|
+  /wardrobe|/physical-states]`.
+- Migration for the new character/asset columns and the two variant tables.
+- 30 new tests (identity defaults/provenance validation/DNA formatting,
+  repository CRUD/lock/version/variants, service lock-immutability/recast/
+  wardrobe-while-locked, consistency-policy selection/dedup/max-reference/
+  multi-character isolation, and API lock-blocks-update-until-recast +
+  wardrobe/physical-state endpoint coverage).
+
 ### Added (Module 04 - Asset & Storage System)
 
 - `Asset` domain model with typed ownership (`AssetOwnership`) and full

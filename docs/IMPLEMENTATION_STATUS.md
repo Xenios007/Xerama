@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - Module 04 (Asset & Storage System)._
+_Last updated: 2026-08-25 - Module 05 (Character Casting Studio)._
 
 This tracks what actually exists in `src/xerama` against the architecture in
 `docs/` and `research/`, per the project rule "when implementation reveals
@@ -69,7 +69,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 139 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 169 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -232,6 +232,94 @@ documentation - do not silently diverge."
   3 API - `find_missing_files`/`find_unreferenced_files`/dedup-safe-delete/
   path-traversal-rejection all directly exercised).
 
+### Module 05 - Character Casting Studio
+
+- **Extended `Character` identity fields** (`domain/character.py`) -
+  `reference_pack` (multi-view: view name -> Asset id - front/three_quarter/
+  side/full_body/expression_*, per playbook "Reference pack"),
+  `identity_provenance` (`CharacterProvenance`), `locked`, `version`
+  (lightweight counter, same precedent as `Episode.version` from Module 02 -
+  full identity history was judged not worth the added state machine for
+  Trial 01). `visual_identity_id`/`voice_identity_id`/`character_dna` were
+  already in place from XER-001/ADR-012 and are reused as-is (not
+  duplicated).
+- **`CharacterProvenance`** - `identity_type` (`IdentityType`:
+  `synthetic_original` | `licensed_authorized`), `consent_reference`,
+  `notes`. There is deliberately no "unlicensed real person" value in
+  `IdentityType`, so an unauthorized celebrity-cloning workflow has nothing
+  to select - per "Do not implement unauthorized celebrity-cloning
+  workflows." A `licensed_authorized` identity without a `consent_reference`
+  fails Pydantic validation outright.
+- **Lock/immutability** - `CharacterCastingService.update_identity`/
+  `set_provenance` raise `PermissionError` while `character.locked` is
+  `True` (playbook: "Never generate a recurring character from scratch once
+  the identity is approved... immutable unless the character is
+  deliberately recast"). `unlock_for_recast` is the one sanctioned way past
+  a lock - it unlocks and increments `version` in the same operation, so a
+  recast is always an explicit, auditable act. Wardrobe/physical-state
+  variants are intentionally NOT blocked by a lock - new outfits/states are
+  expected to accumulate over a season regardless of whether the
+  character's face/body identity is frozen.
+- **`WardrobeVariant` / `CharacterPhysicalStateVariant`** - versioned
+  outfit/state assets per playbook "Wardrobe as assets" ("do not prompt
+  'same clothes as before'"), each with its own `reference_asset_ids` list;
+  added freely via `CharacterCastingService.add_wardrobe_variant` /
+  `add_physical_state_variant`, independent of the parent character's lock
+  state.
+- **`ConsistencyPolicy`** (`services/consistency_policy.py`, ADR-014) - the
+  one place that selects, per character per shot: root identity -> ordered
+  reference-pack views -> wardrobe-variant references -> physical-state
+  references, deduplicated and bounded by a per-provider
+  `max_references` cap (`DEFAULT_MAX_REFERENCES_PER_CHARACTER = 4`,
+  documented as a conservative placeholder until Module 07 exposes real
+  per-provider limits). `select_for_shot` selects each character in a shot
+  independently so one character's references never leak into another's.
+  Falls back to the character's own id when no identity assets exist yet
+  (pre-image-generation), preserving prior Module 03 behavior exactly.
+  `PromptCompiler.compile_shot` (Module 03) now calls this instead of
+  improvising `visual_identity_id or character.id` inline - closes the
+  ADR-014 gap flagged when Module 03 shipped. `format_character_dna` was
+  extracted from `PromptCompiler` into `domain/character.py` as a shared
+  pure function so DNA-text phrasing can never drift between the compiler
+  and the policy.
+- **Identity-QC interface** (`providers/identity_qc.py`) - `IdentityQCProvider`
+  Protocol (`score_identity(character, candidate_asset, reference_asset) ->
+  QCResult`) plus placeholder pass/block thresholds
+  (`IDENTITY_SIMILARITY_PASS_THRESHOLD = 7.0`,
+  `IDENTITY_SIMILARITY_BLOCK_THRESHOLD = 5.0`), matching every other QC
+  gate's pass/warn/block shape (ADR-018). No implementation - Module 05
+  explicitly defers "multimodal implementation to Module 11" since real
+  face/likeness comparison needs a vision model this module does not add.
+- **`AssetOwnership.character_id`** - assets (root portraits, reference-pack
+  views, wardrobe/physical-state photos) can now be attributed to a
+  character independent of any episode/scene/shot; `AssetRepository.
+  list_by_ownership`/`GET /assets`/`POST /assets/upload` all accept the new
+  optional filter/field.
+- **API** (`api/routers/characters.py`) - `GET /characters/{id}`,
+  `POST /characters/{id}/lock`, `POST /characters/{id}/unlock` (recast),
+  `PATCH /characters/{id}/identity`, `POST /characters/{id}/provenance`,
+  `POST`/`GET /characters/{id}/wardrobe`,
+  `POST`/`GET /characters/{id}/physical-states`. Identity endpoints return
+  409 when the character is locked, 404 for an unknown character.
+- **No `ImageProvider`/fake image provider added here** - Module 06 owns
+  that contract ("Define `ImageProvider` contract and fake implementation");
+  Module 05's identity assets are populated via Module 04's existing manual
+  upload path (`POST /assets/upload`) for Trial 01, or later via Module 06's
+  provider once it exists - see deviation note below.
+- **Migration** - `alembic/versions/2baba9e0ec9a_add_character_casting_studio.py`
+  (`characters.reference_pack/identity_provenance/locked/version`,
+  `assets.character_id`, `character_wardrobe_variants`,
+  `character_physical_state_variants`).
+- Acceptance criterion met: a recurring character now has a durable
+  identity package (root asset pointer, multi-view reference pack,
+  Character DNA, wardrobe/physical-state variants, voice pointer, lock
+  state, provenance/consent) that `ConsistencyPolicy` already compiles into
+  every shot's `ShotGenerationRequest` today - downstream storyboard/image/
+  video/audio stages (Modules 06/08/09) reference it through that one
+  policy rather than each improvising their own selection - verified by 30
+  new tests (6 domain, 6 repository, 6 service, 9 policy, 3 API) plus the
+  full existing suite staying green with the `PromptCompiler` change.
+
 ## Partially implemented
 
 - **Character/Style identity** - the textual/structural layer (`Character`,
@@ -331,3 +419,25 @@ consistent enough to start coding per
      `POST /generate-series` semantics) rather than silently turning one
      API call into N sequential LLM-heavy episode generations. Episodes
      2..N are one explicit call away (`generate-next`/`generate-range`).
+7. **Scope choices in Module 05** - `modules/05_CHARACTER_CASTING_STUDIO.md`
+   leaves several implementation details open:
+   - **What "locked" protects** - the module says identity is "immutable"
+     once approved but doesn't say whether that covers wardrobe/physical-
+     state variants too. Implemented as: locking freezes only root-identity
+     fields (`visual_identity_id`, `reference_pack`, `character_dna`,
+     `identity_provenance`); wardrobe/physical-state variants can always be
+     added, since new outfits/states are an expected, ongoing part of
+     production regardless of whether the character's face/body is frozen
+     (see playbook's separate "Wardrobe State"/"Physical State" branches
+     under a single immutable "Root Identity").
+   - **"Versioning"** is a lightweight `Character.version` counter bumped
+     only on an explicit `unlock_for_recast` call, not a kept history of
+     every past identity field value - the same precedent as
+     `Episode.version` (deviation 6). `QualityReport`-style per-attempt
+     history is left to Module 11's identity-QC retry loop, which will have
+     actual candidate assets to attach a history to.
+   - **No `ImageProvider`/fake image provider was added in this module** -
+     `modules/06_STYLE_STORYBOARD_IMAGE.md` explicitly owns "Define
+     `ImageProvider` contract and fake implementation," so Module 05 uses
+     Module 04's existing manual-upload path to populate identity assets
+     for Trial 01 rather than pre-empting Module 06's contract.
