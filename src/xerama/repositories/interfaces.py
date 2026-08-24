@@ -19,7 +19,9 @@ from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan
 from xerama.domain.season import SeasonPlan
+from xerama.domain.storyboard import Storyboard
 from xerama.domain.story import ConceptCandidate, JudgeResult
+from xerama.domain.style_bible import StyleBible
 from xerama.domain.enums import JobStage, JobStatus
 
 
@@ -221,6 +223,8 @@ class AssetRepository(Protocol):
         series_id: str | None = None,
         episode_id: str | None = None,
         character_id: str | None = None,
+        scene_number: int | None = None,
+        shot_number: int | None = None,
         asset_type: AssetType | None = None,
     ) -> list[Asset]: ...
 
@@ -272,3 +276,32 @@ class CharacterCastingRepository(Protocol):
     ) -> PhysicalStateVariant: ...
 
     async def list_physical_state_variants(self, character_id: str) -> list[PhysicalStateVariant]: ...
+
+
+class StyleBibleRepository(Protocol):
+    """One production-anchor row per series - see Module 06, ADR-013."""
+
+    async def get_or_create(self, series_id: str) -> StyleBible: ...
+
+    async def save(self, style_bible: StyleBible) -> StyleBible:
+        """Persists every field over the existing row. Raises `ValueError`
+        if the style bible does not already exist."""
+        ...
+
+    async def set_lock(self, series_id: str, locked: bool) -> StyleBible: ...
+
+    async def unlock_and_bump_version(self, series_id: str) -> StyleBible: ...
+
+
+class StoryboardRepository(Protocol):
+    """Per-shot still-image workflow records - see Module 06."""
+
+    async def get_or_create(
+        self, episode_id: str, scene_number: int, shot_number: int, layout_description: str = ""
+    ) -> Storyboard: ...
+
+    async def get(self, storyboard_id: str) -> Storyboard | None: ...
+
+    async def approve(self, storyboard_id: str, asset_id: str) -> Storyboard: ...
+
+    async def list_by_episode(self, episode_id: str) -> list[Storyboard]: ...

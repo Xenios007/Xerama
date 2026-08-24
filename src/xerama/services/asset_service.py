@@ -94,6 +94,8 @@ class AssetService:
         series_id: str | None = None,
         episode_id: str | None = None,
         character_id: str | None = None,
+        scene_number: int | None = None,
+        shot_number: int | None = None,
         asset_type: AssetType | None = None,
     ) -> list[Asset]:
         return await self._asset_repo.list_by_ownership(
@@ -101,6 +103,8 @@ class AssetService:
             series_id=series_id,
             episode_id=episode_id,
             character_id=character_id,
+            scene_number=scene_number,
+            shot_number=shot_number,
             asset_type=asset_type,
         )
 

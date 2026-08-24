@@ -399,3 +399,39 @@ class Asset(Base):
     take_number: Mapped[int] = mapped_column(Integer, default=1)
     rejection_reason: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class StyleBible(Base):
+    """One production-anchor row per series - see ADR-013 and Module 06."""
+
+    __tablename__ = "style_bibles"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    series_id: Mapped[str] = mapped_column(ForeignKey("series.id"), unique=True, index=True)
+    style_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    style_dna: Mapped[str] = mapped_column(Text, default="")
+    palette: Mapped[list] = mapped_column(JSON, default=list)
+    lighting: Mapped[str] = mapped_column(String(255), default="")
+    texture: Mapped[str] = mapped_column(String(255), default="")
+    color_temperature: Mapped[str] = mapped_column(String(255), default="")
+    composition_rules: Mapped[list] = mapped_column(JSON, default=list)
+    negatives: Mapped[list] = mapped_column(JSON, default=list)
+    locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class Storyboard(Base):
+    """Per-shot still-image workflow record - see Module 06. Individual
+    keyframe attempts are `Asset` rows (type=image), not duplicated here."""
+
+    __tablename__ = "storyboards"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    episode_id: Mapped[str] = mapped_column(ForeignKey("episodes.id"), index=True)
+    scene_number: Mapped[int] = mapped_column(Integer)
+    shot_number: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    layout_description: Mapped[str] = mapped_column(Text, default="")
+    approved_keyframe_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)

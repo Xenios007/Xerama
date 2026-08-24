@@ -24,7 +24,9 @@ from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan, Scene as SceneDTO, Shot as ShotDTO
 from xerama.domain.season import SeasonPlan
+from xerama.domain.storyboard import Storyboard
 from xerama.domain.story import ConceptCandidate, JudgeResult, SeriesBible
+from xerama.domain.style_bible import StyleBible
 from xerama.repositories.interfaces import (
     EpisodeRecord,
     JobRecord,
@@ -733,6 +735,8 @@ class SQLAlchemyAssetRepository:
         series_id: str | None = None,
         episode_id: str | None = None,
         character_id: str | None = None,
+        scene_number: int | None = None,
+        shot_number: int | None = None,
         asset_type: AssetType | None = None,
     ) -> list[Asset]:
         query = select(m.Asset).where(m.Asset.project_id == project_id)
@@ -742,6 +746,10 @@ class SQLAlchemyAssetRepository:
             query = query.where(m.Asset.episode_id == episode_id)
         if character_id is not None:
             query = query.where(m.Asset.character_id == character_id)
+        if scene_number is not None:
+            query = query.where(m.Asset.scene_number == scene_number)
+        if shot_number is not None:
+            query = query.where(m.Asset.shot_number == shot_number)
         if asset_type is not None:
             query = query.where(m.Asset.type == asset_type.value)
         query = query.order_by(m.Asset.created_at)
@@ -916,3 +924,134 @@ class SQLAlchemyCharacterCastingRepository:
             .order_by(m.CharacterPhysicalStateVariant.created_at)
         )
         return [_physical_state_variant(row) for row in result.scalars()]
+
+
+def _style_bible(row: m.StyleBible) -> StyleBible:
+    return StyleBible(
+        id=row.id,
+        series_id=row.series_id,
+        style_asset_id=row.style_asset_id,
+        style_dna=row.style_dna,
+        palette=row.palette,
+        lighting=row.lighting,
+        texture=row.texture,
+        color_temperature=row.color_temperature,
+        composition_rules=row.composition_rules,
+        negatives=row.negatives,
+        locked=row.locked,
+        version=row.version,
+    )
+
+
+class SQLAlchemyStyleBibleRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_or_create(self, series_id: str) -> StyleBible:
+        result = await self._session.execute(
+            select(m.StyleBible).where(m.StyleBible.series_id == series_id)
+        )
+        row = result.scalars().first()
+        if row is None:
+            row = m.StyleBible(series_id=series_id)
+            self._session.add(row)
+            await self._session.flush()
+        return _style_bible(row)
+
+    async def save(self, style_bible: StyleBible) -> StyleBible:
+        row = await self._session.get(m.StyleBible, style_bible.id)
+        if row is None:
+            raise ValueError(f"style bible {style_bible.id} not found")
+        row.style_asset_id = style_bible.style_asset_id
+        row.style_dna = style_bible.style_dna
+        row.palette = style_bible.palette
+        row.lighting = style_bible.lighting
+        row.texture = style_bible.texture
+        row.color_temperature = style_bible.color_temperature
+        row.composition_rules = style_bible.composition_rules
+        row.negatives = style_bible.negatives
+        row.locked = style_bible.locked
+        row.version = style_bible.version
+        await self._session.flush()
+        return _style_bible(row)
+
+    async def set_lock(self, series_id: str, locked: bool) -> StyleBible:
+        result = await self._session.execute(
+            select(m.StyleBible).where(m.StyleBible.series_id == series_id)
+        )
+        row = result.scalars().first()
+        if row is None:
+            raise ValueError(f"style bible for series {series_id} not found")
+        row.locked = locked
+        await self._session.flush()
+        return _style_bible(row)
+
+    async def unlock_and_bump_version(self, series_id: str) -> StyleBible:
+        result = await self._session.execute(
+            select(m.StyleBible).where(m.StyleBible.series_id == series_id)
+        )
+        row = result.scalars().first()
+        if row is None:
+            raise ValueError(f"style bible for series {series_id} not found")
+        row.locked = False
+        row.version += 1
+        await self._session.flush()
+        return _style_bible(row)
+
+
+def _storyboard(row: m.Storyboard) -> Storyboard:
+    return Storyboard(
+        id=row.id,
+        episode_id=row.episode_id,
+        scene_number=row.scene_number,
+        shot_number=row.shot_number,
+        status=row.status,
+        layout_description=row.layout_description,
+        approved_keyframe_asset_id=row.approved_keyframe_asset_id,
+    )
+
+
+class SQLAlchemyStoryboardRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_or_create(
+        self, episode_id: str, scene_number: int, shot_number: int, layout_description: str = ""
+    ) -> Storyboard:
+        result = await self._session.execute(
+            select(m.Storyboard).where(
+                m.Storyboard.episode_id == episode_id,
+                m.Storyboard.scene_number == scene_number,
+                m.Storyboard.shot_number == shot_number,
+            )
+        )
+        row = result.scalars().first()
+        if row is None:
+            row = m.Storyboard(
+                episode_id=episode_id,
+                scene_number=scene_number,
+                shot_number=shot_number,
+                layout_description=layout_description,
+            )
+            self._session.add(row)
+            await self._session.flush()
+        return _storyboard(row)
+
+    async def get(self, storyboard_id: str) -> Storyboard | None:
+        row = await self._session.get(m.Storyboard, storyboard_id)
+        return _storyboard(row) if row is not None else None
+
+    async def approve(self, storyboard_id: str, asset_id: str) -> Storyboard:
+        row = await self._session.get(m.Storyboard, storyboard_id)
+        if row is None:
+            raise ValueError(f"storyboard {storyboard_id} not found")
+        row.status = "approved"
+        row.approved_keyframe_asset_id = asset_id
+        await self._session.flush()
+        return _storyboard(row)
+
+    async def list_by_episode(self, episode_id: str) -> list[Storyboard]:
+        result = await self._session.execute(
+            select(m.Storyboard).where(m.Storyboard.episode_id == episode_id)
+        )
+        return [_storyboard(row) for row in result.scalars()]
