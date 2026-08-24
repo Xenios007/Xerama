@@ -889,3 +889,45 @@ async def test_subtitle_generate_requires_shot_plan(client: httpx.AsyncClient) -
     project_id = created.json()["id"]
     response = await client.post(f"/episodes/{project_id}/subtitles/generate")
     assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_job_enqueue_list_and_cancel_flow(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+
+    enqueued = await client.post(
+        "/jobs/enqueue",
+        json={"project_id": project_id, "stage": "concept_generation", "payload": {"prompt": "x"}},
+    )
+    assert enqueued.status_code == 200, enqueued.text
+    job = enqueued.json()
+    assert job["status"] == "queued"
+
+    listed = await client.get("/jobs/queued")
+    assert any(j["id"] == job["id"] for j in listed.json())
+
+    fetched = await client.get(f"/jobs/{job['id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["id"] == job["id"]
+
+    cancelled = await client.post(f"/jobs/{job['id']}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+
+    still_listed = await client.get("/jobs/queued")
+    assert not any(j["id"] == job["id"] for j in still_listed.json())
+
+
+@pytest.mark.asyncio
+async def test_job_cancel_not_found_404s(client: httpx.AsyncClient) -> None:
+    assert (await client.post("/jobs/does-not-exist/cancel")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_job_list_failed(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    empty = await client.get("/jobs/failed", params={"project_id": project_id})
+    assert empty.status_code == 200
+    assert empty.json() == []
