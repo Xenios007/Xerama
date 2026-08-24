@@ -8,6 +8,7 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xerama.pipeline.ai_gateway import AIGateway
+from xerama.pipeline.episode_engine import EpisodeEngine
 from xerama.pipeline.orchestrator import Showrunner
 from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyConceptRepository,
@@ -52,6 +53,17 @@ def get_job_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyJobR
 
 def get_season_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemySeasonRepository:
     return SQLAlchemySeasonRepository(session)
+
+
+def get_episode_engine(
+    session: AsyncSession = Depends(get_session), gateway: AIGateway = Depends(get_gateway)
+) -> EpisodeEngine:
+    return EpisodeEngine(
+        gateway=gateway,
+        series_repo=SQLAlchemySeriesRepository(session),
+        episode_repo=SQLAlchemyEpisodeRepository(session),
+        job_repo=SQLAlchemyJobRepository(session),
+    )
 
 
 def get_showrunner(
