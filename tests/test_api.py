@@ -9,7 +9,9 @@ from xerama.config import ModelRoleRegistry, Settings
 from xerama.db.base import create_all, make_engine, make_session_factory
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.providers.fake import FakeLLMProvider
+from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_image import FakeImageProvider
+from xerama.providers.fake_video import FakeVideoProvider
 from xerama.providers.health import ProviderHealthTracker
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.services.media_router import MediaProviderRouter
@@ -44,11 +46,15 @@ async def client(tmp_path):
     app.state.storage_provider = LocalStorageProvider(tmp_path / "storage")
     image_provider = FakeImageProvider()
     app.state.image_router = MediaProviderRouter([image_provider])
+    video_provider = FakeVideoProvider()
+    app.state.video_router = MediaProviderRouter([video_provider])
+    app.state.frame_extractor = FakeFrameExtractor()
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
         ac.fake_provider = provider  # exposed for tests that need to queue more responses
         ac.fake_image_provider = image_provider
+        ac.fake_video_provider = video_provider
         yield ac
 
     await engine.dispose()
@@ -439,3 +445,87 @@ async def test_storyboard_keyframe_reject_and_manual_upload_retry(client: httpx.
 async def test_storyboard_not_found_404s(client: httpx.AsyncClient) -> None:
     assert (await client.get("/storyboards/does-not-exist")).status_code == 404
     assert (await client.post("/storyboards/does-not-exist/keyframes/generate")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_video_production_generate_accept_flow(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    created_production = await client.post(
+        f"/episodes/{episode1_id}/scenes/1/shots/1/video-production"
+    )
+    assert created_production.status_code == 200, created_production.text
+    production = created_production.json()
+    assert production["status"] == "draft"
+    production_id = production["id"]
+
+    idempotent = await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/video-production")
+    assert idempotent.json()["id"] == production_id
+
+    listed = await client.get(f"/episodes/{episode1_id}/video-productions")
+    assert len(listed.json()) == 1
+
+    client.fake_video_provider.queue(b"generated take bytes")
+    generated_take = await client.post(f"/video-productions/{production_id}/takes/generate")
+    assert generated_take.status_code == 200, generated_take.text
+    asset = generated_take.json()
+    assert asset["take_number"] == 1
+    assert asset["status"] == "pending"
+    assert asset["type"] == "video"
+
+    takes = await client.get(f"/video-productions/{production_id}/takes")
+    assert len(takes.json()) == 1
+
+    accepted = await client.post(f"/video-productions/{production_id}/takes/{asset['id']}/accept")
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "approved"
+    assert accepted.json()["approved_take_asset_id"] == asset["id"]
+    # No continuity_group on this fixture shot - never extracts a frame.
+    assert accepted.json()["extracted_last_frame_asset_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_video_production_reject_and_manual_upload_retry(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+    production_id = (
+        await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/video-production")
+    ).json()["id"]
+
+    client.fake_video_provider.queue(b"bad take")
+    first = (await client.post(f"/video-productions/{production_id}/takes/generate")).json()
+
+    rejected = await client.post(
+        f"/video-productions/{production_id}/takes/{first['id']}/reject",
+        params={"reason": "flicker artifact"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+
+    still_draft = await client.get(f"/video-productions/{production_id}")
+    assert still_draft.json()["status"] == "draft"
+
+    retry_upload = await client.post(
+        f"/video-productions/{production_id}/takes/upload",
+        files={"file": ("retake.mp4", b"manual retake bytes", "video/mp4")},
+    )
+    assert retry_upload.status_code == 200, retry_upload.text
+    assert retry_upload.json()["take_number"] == 2
+    assert retry_upload.json()["provenance"]["provider"] == "manual_upload"
+
+
+@pytest.mark.asyncio
+async def test_video_production_not_found_404s(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/video-productions/does-not-exist")).status_code == 404
+    assert (await client.post("/video-productions/does-not-exist/takes/generate")).status_code == 404

@@ -43,6 +43,27 @@ async def test_ingest_bytes_persists_and_hashes(session, storage) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ingest_bytes_persists_dimension_and_duration_metadata(session, storage) -> None:
+    project_id = await _project(session)
+    service = _service(session, storage)
+    asset = await service.ingest_bytes(
+        b"fake video bytes",
+        AssetType.VIDEO,
+        AssetOwnership(project_id=project_id),
+        mime_type="video/mp4",
+        ext=".mp4",
+        width=1080,
+        height=1920,
+        duration_seconds=5.0,
+    )
+    await session.commit()
+
+    assert asset.width == 1080
+    assert asset.height == 1920
+    assert asset.duration_seconds == 5.0
+
+
+@pytest.mark.asyncio
 async def test_ingest_dedupes_disk_write_but_creates_new_asset_row(session, storage) -> None:
     project_id = await _project(session)
     service = _service(session, storage)
