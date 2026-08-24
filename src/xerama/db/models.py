@@ -488,3 +488,42 @@ class ShotAudioProduction(Base):
     status: Mapped[str] = mapped_column(String(16), default="draft")
     approved_take_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class MusicCue(Base):
+    """See MODULE-037. Cues are planning metadata + an asset pointer, not
+    audio bytes themselves."""
+
+    __tablename__ = "music_cues"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    episode_id: Mapped[str] = mapped_column(ForeignKey("episodes.id"), index=True)
+    scene_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    purpose: Mapped[str] = mapped_column(String(128), default="")
+    mood: Mapped[str] = mapped_column(String(128), default="")
+    start_seconds: Mapped[float] = mapped_column(Float)
+    end_seconds: Mapped[float] = mapped_column(Float)
+    ducking_db: Mapped[float] = mapped_column(Float, default=0.0)
+    asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    rights: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class SoundEffectCue(Base):
+    """See MODULE-038."""
+
+    __tablename__ = "sound_effect_cues"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    episode_id: Mapped[str] = mapped_column(ForeignKey("episodes.id"), index=True)
+    scene_number: Mapped[int] = mapped_column(Integer)
+    shot_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    start_seconds: Mapped[float] = mapped_column(Float)
+    end_seconds: Mapped[float] = mapped_column(Float)
+    gain_db: Mapped[float] = mapped_column(Float, default=0.0)
+    asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    rights: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)

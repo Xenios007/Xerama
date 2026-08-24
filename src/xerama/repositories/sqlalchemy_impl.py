@@ -24,7 +24,10 @@ from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan, Scene as SceneDTO, Shot as ShotDTO
 from xerama.domain.audio_production import ShotAudioProduction
+from xerama.domain.music import MusicCue
+from xerama.domain.rights import RightsMetadata
 from xerama.domain.season import SeasonPlan
+from xerama.domain.sound_effect import SoundEffectCue
 from xerama.domain.storyboard import Storyboard
 from xerama.domain.story import ConceptCandidate, JudgeResult, SeriesBible
 from xerama.domain.style_bible import StyleBible
@@ -1281,3 +1284,157 @@ class SQLAlchemyAudioProductionRepository:
             select(m.ShotAudioProduction).where(m.ShotAudioProduction.episode_id == episode_id)
         )
         return [_audio_production(row) for row in result.scalars()]
+
+
+def _music_cue(row: m.MusicCue) -> MusicCue:
+    return MusicCue(
+        id=row.id,
+        episode_id=row.episode_id,
+        scene_number=row.scene_number,
+        purpose=row.purpose,
+        mood=row.mood,
+        start_seconds=row.start_seconds,
+        end_seconds=row.end_seconds,
+        ducking_db=row.ducking_db,
+        asset_id=row.asset_id,
+        rights=RightsMetadata.model_validate(row.rights) if row.rights else RightsMetadata(),
+        status=row.status,
+    )
+
+
+class SQLAlchemyMusicCueRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        episode_id: str,
+        purpose: str,
+        mood: str,
+        start_seconds: float,
+        end_seconds: float,
+        ducking_db: float = 0.0,
+        scene_number: int | None = None,
+    ) -> MusicCue:
+        row = m.MusicCue(
+            episode_id=episode_id,
+            scene_number=scene_number,
+            purpose=purpose,
+            mood=mood,
+            start_seconds=start_seconds,
+            end_seconds=end_seconds,
+            ducking_db=ducking_db,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _music_cue(row)
+
+    async def get(self, cue_id: str) -> MusicCue | None:
+        row = await self._session.get(m.MusicCue, cue_id)
+        return _music_cue(row) if row is not None else None
+
+    async def update(self, cue: MusicCue) -> MusicCue:
+        row = await self._session.get(m.MusicCue, cue.id)
+        if row is None:
+            raise ValueError(f"music cue {cue.id} not found")
+        row.scene_number = cue.scene_number
+        row.purpose = cue.purpose
+        row.mood = cue.mood
+        row.start_seconds = cue.start_seconds
+        row.end_seconds = cue.end_seconds
+        row.ducking_db = cue.ducking_db
+        row.asset_id = cue.asset_id
+        row.rights = cue.rights.model_dump(mode="json")
+        row.status = cue.status
+        await self._session.flush()
+        return _music_cue(row)
+
+    async def delete(self, cue_id: str) -> None:
+        row = await self._session.get(m.MusicCue, cue_id)
+        if row is not None:
+            await self._session.delete(row)
+            await self._session.flush()
+
+    async def list_by_episode(self, episode_id: str) -> list[MusicCue]:
+        result = await self._session.execute(
+            select(m.MusicCue).where(m.MusicCue.episode_id == episode_id).order_by(m.MusicCue.start_seconds)
+        )
+        return [_music_cue(row) for row in result.scalars()]
+
+
+def _sound_effect_cue(row: m.SoundEffectCue) -> SoundEffectCue:
+    return SoundEffectCue(
+        id=row.id,
+        episode_id=row.episode_id,
+        scene_number=row.scene_number,
+        shot_number=row.shot_number,
+        description=row.description,
+        start_seconds=row.start_seconds,
+        end_seconds=row.end_seconds,
+        gain_db=row.gain_db,
+        asset_id=row.asset_id,
+        rights=RightsMetadata.model_validate(row.rights) if row.rights else RightsMetadata(),
+        status=row.status,
+    )
+
+
+class SQLAlchemySoundEffectCueRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        episode_id: str,
+        scene_number: int,
+        description: str,
+        start_seconds: float,
+        end_seconds: float,
+        shot_number: int | None = None,
+        gain_db: float = 0.0,
+    ) -> SoundEffectCue:
+        row = m.SoundEffectCue(
+            episode_id=episode_id,
+            scene_number=scene_number,
+            shot_number=shot_number,
+            description=description,
+            start_seconds=start_seconds,
+            end_seconds=end_seconds,
+            gain_db=gain_db,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _sound_effect_cue(row)
+
+    async def get(self, cue_id: str) -> SoundEffectCue | None:
+        row = await self._session.get(m.SoundEffectCue, cue_id)
+        return _sound_effect_cue(row) if row is not None else None
+
+    async def update(self, cue: SoundEffectCue) -> SoundEffectCue:
+        row = await self._session.get(m.SoundEffectCue, cue.id)
+        if row is None:
+            raise ValueError(f"sound effect cue {cue.id} not found")
+        row.scene_number = cue.scene_number
+        row.shot_number = cue.shot_number
+        row.description = cue.description
+        row.start_seconds = cue.start_seconds
+        row.end_seconds = cue.end_seconds
+        row.gain_db = cue.gain_db
+        row.asset_id = cue.asset_id
+        row.rights = cue.rights.model_dump(mode="json")
+        row.status = cue.status
+        await self._session.flush()
+        return _sound_effect_cue(row)
+
+    async def delete(self, cue_id: str) -> None:
+        row = await self._session.get(m.SoundEffectCue, cue_id)
+        if row is not None:
+            await self._session.delete(row)
+            await self._session.flush()
+
+    async def list_by_episode(self, episode_id: str) -> list[SoundEffectCue]:
+        result = await self._session.execute(
+            select(m.SoundEffectCue)
+            .where(m.SoundEffectCue.episode_id == episode_id)
+            .order_by(m.SoundEffectCue.start_seconds)
+        )
+        return [_sound_effect_cue(row) for row in result.scalars()]

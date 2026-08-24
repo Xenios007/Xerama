@@ -17,9 +17,11 @@ from xerama.domain.brief import CreativeBrief
 from xerama.domain.canon import CanonEvent
 from xerama.domain.character import Character, CharacterCast, PhysicalStateVariant, WardrobeVariant
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
+from xerama.domain.music import MusicCue
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan
 from xerama.domain.season import SeasonPlan
+from xerama.domain.sound_effect import SoundEffectCue
 from xerama.domain.storyboard import Storyboard
 from xerama.domain.story import ConceptCandidate, JudgeResult
 from xerama.domain.style_bible import StyleBible
@@ -369,3 +371,55 @@ class AudioProductionRepository(Protocol):
     async def approve(self, production_id: str, asset_id: str) -> ShotAudioProduction: ...
 
     async def list_by_episode(self, episode_id: str) -> list[ShotAudioProduction]: ...
+
+
+class MusicCueRepository(Protocol):
+    """See MODULE-037."""
+
+    async def create(
+        self,
+        episode_id: str,
+        purpose: str,
+        mood: str,
+        start_seconds: float,
+        end_seconds: float,
+        ducking_db: float = 0.0,
+        scene_number: int | None = None,
+    ) -> MusicCue: ...
+
+    async def get(self, cue_id: str) -> MusicCue | None: ...
+
+    async def update(self, cue: MusicCue) -> MusicCue:
+        """Persists every field over the existing row. Raises `ValueError`
+        if the cue does not already exist."""
+        ...
+
+    async def delete(self, cue_id: str) -> None: ...
+
+    async def list_by_episode(self, episode_id: str) -> list[MusicCue]: ...
+
+
+class SoundEffectCueRepository(Protocol):
+    """See MODULE-038."""
+
+    async def create(
+        self,
+        episode_id: str,
+        scene_number: int,
+        description: str,
+        start_seconds: float,
+        end_seconds: float,
+        shot_number: int | None = None,
+        gain_db: float = 0.0,
+    ) -> SoundEffectCue: ...
+
+    async def get(self, cue_id: str) -> SoundEffectCue | None: ...
+
+    async def update(self, cue: SoundEffectCue) -> SoundEffectCue:
+        """Persists every field over the existing row. Raises `ValueError`
+        if the cue does not already exist."""
+        ...
+
+    async def delete(self, cue_id: str) -> None: ...
+
+    async def list_by_episode(self, episode_id: str) -> list[SoundEffectCue]: ...
