@@ -131,6 +131,7 @@ class EpisodeEngine:
                 self._director_validator.check_dialogue_coverage(script, shot_plan),
                 self._director_validator.check_continuity_grouping(shot_plan),
                 self._director_validator.check_scene_blocking(shot_plan),
+                self._director_validator.check_motion_plan(shot_plan),
             ):
                 await self._episode_repo.save_quality_report(episode_record.id, director_qc)
 

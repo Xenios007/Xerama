@@ -195,3 +195,70 @@ class DirectorValidator:
                 else ""
             ),
         )
+
+    def check_motion_plan(self, plan: EpisodeShotPlan) -> QCResult:
+        """See MODULE-033 - detect impossible or overloaded motion plans
+        before generation. Provider capability differences for
+        performance/subject reference are already handled by
+        `ProviderRequirements`/`VideoProviderCapabilities`
+        (`providers/video.py:matches_requirements`, Module 07/08) - nothing
+        further needed here. "Keep dialogue performance linked to speaker/
+        emotion" is satisfied by construction: `MicroBeat.character_id`
+        ties every structured beat to a specific speaker."""
+
+        reasons: list[str] = []
+        for scene in plan.scenes:
+            for shot in scene.shots:
+                beats = sorted(shot.micro_beats, key=lambda b: b.start_seconds)
+                for beat in beats:
+                    if beat.start_seconds >= beat.end_seconds:
+                        reasons.append(
+                            f"scene {scene.scene_number} shot {shot.shot_number}: micro_beat has "
+                            f"start_seconds >= end_seconds ({beat.start_seconds} >= {beat.end_seconds})"
+                        )
+                    elif beat.end_seconds > shot.duration_seconds:
+                        reasons.append(
+                            f"scene {scene.scene_number} shot {shot.shot_number}: micro_beat "
+                            f"[{beat.start_seconds}-{beat.end_seconds}] extends past the shot's "
+                            f"duration_seconds={shot.duration_seconds}"
+                        )
+
+                by_character: dict[str, list] = defaultdict(list)
+                for beat in beats:
+                    if beat.character_id:
+                        by_character[beat.character_id].append(beat)
+                for character_id, character_beats in by_character.items():
+                    for prev, nxt in zip(character_beats, character_beats[1:]):
+                        if prev.end_seconds > nxt.start_seconds:
+                            reasons.append(
+                                f"scene {scene.scene_number} shot {shot.shot_number}: {character_id} "
+                                f"has overlapping micro_beats [{prev.start_seconds}-{prev.end_seconds}] "
+                                f"and [{nxt.start_seconds}-{nxt.end_seconds}] - an impossible "
+                                "simultaneous pose/expression/gaze"
+                            )
+
+                if beats and shot.duration_seconds > 0 and len(beats) / shot.duration_seconds > 1.0:
+                    reasons.append(
+                        f"scene {scene.scene_number} shot {shot.shot_number}: {len(beats)} "
+                        f"micro_beats in {shot.duration_seconds}s is an overloaded motion plan "
+                        "(>1 beat/second)"
+                    )
+
+        impossible = [
+            r
+            for r in reasons
+            if "extends past" in r or "start_seconds >=" in r or "overlapping micro_beats" in r
+        ]
+        status = QCStatus.BLOCK if impossible else (QCStatus.WARN if reasons else QCStatus.PASS)
+        score = 0.0 if status == QCStatus.BLOCK else max(0.0, 10.0 - 2 * len(reasons))
+        return QCResult(
+            gate="director_motion_plan",
+            status=status,
+            score=score,
+            reasons=reasons,
+            repair_recommendation=(
+                "Fix overlapping/out-of-bounds micro_beats or reduce beat density per shot."
+                if reasons
+                else ""
+            ),
+        )

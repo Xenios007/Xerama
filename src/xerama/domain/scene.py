@@ -34,11 +34,22 @@ class ShotReferences(BaseModel):
 
 
 class MicroBeat(BaseModel):
-    """Temporal beat within a generated shot. See ADR-016."""
+    """Temporal beat within a generated shot. See ADR-016 and MODULE-033
+    (Character Motion/Performance) - `character_id`/`pose`/`expression`/
+    `gaze`/`camera_note` turn this from a single unbounded prose sentence
+    into structured performance data. All optional/defaulted so existing
+    beats (`description` only) keep working unchanged."""
 
     start_seconds: float
     end_seconds: float
     description: str
+    # Which character this beat is about - links performance to speaker,
+    # required for `DirectorValidator.check_motion_plan`'s overlap check.
+    character_id: str | None = None
+    pose: str = ""
+    expression: str = ""
+    gaze: str = ""
+    camera_note: str = ""
 
 
 class ProviderRequirements(BaseModel):
