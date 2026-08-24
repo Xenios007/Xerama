@@ -4,55 +4,73 @@ _Last updated: 2026-08-24_
 
 ## Research goal
 
-Xerama is a practical attempt to reproduce the already-working AI microdrama production pattern using public knowledge, open-source systems, research papers, and available commercial/open models. We will begin with free tiers/trials, measure failures, and pay only where tests demonstrate a useful quality/cost improvement.
+Xerama is a practical attempt to reproduce the already-working AI microdrama production pattern using public knowledge, open-source systems, research papers and available commercial/open models. We will begin with free tiers/trials, measure failures and pay only where tests demonstrate a useful quality/cost improvement.
 
 The documents in this repository are hypotheses and implementation guidance, not immutable specifications. Trial-and-error is expected.
 
+## Current research status
+
+**Core architecture research is now sufficient to begin coding.**
+
+A source-level review of Wind Comic materially reduced uncertainty around specialist-agent orchestration, provider routing, character/style locking, generation jobs, persistent assets, quality loops, retakes, multi-episode memory, cost telemetry and deterministic finishing. Remaining unknowns are mainly empirical model/provider quality and should be answered through benchmarks and Trial 01 rather than more speculative architecture work.
+
 ## Core design documents
 
-- `docs/ARCHITECTURE.md` — system architecture
+- `docs/ARCHITECTURE.md` — system architecture, updated with provider routing, production anchors, jobs/assets and QC loops
 - `docs/ROADMAP.md` — development roadmap
 - `docs/STORY_FORMULA.md` — initial microdrama storytelling grammar
 - `docs/AI_MODELS.md` — model-role strategy
 - `docs/DATA_MODEL.md` — canonical production/story data
 - `docs/JSON_CONTRACTS.md` — AI exchange formats
 - `docs/WORKFLOW.md` — proposed end-to-end workflow
-- `docs/DECISIONS.md` — architecture decision log
+- `docs/DECISIONS.md` — architecture decision log, including Wind Comic-derived decisions
 
 ## Research documents
 
 - `research/2026_AI_MICRODRAMA_INDUSTRY.md` — market maturity and evidence that AI-native microdrama is already industrialized
 - `research/PRODUCTION_PIPELINE_REVERSE_ENGINEERING.md` — reconstructed production workflow
 - `research/MODEL_AND_TOOL_LANDSCAPE.md` — model/tool layers and provider-routing strategy
-- `research/CHARACTER_CONTINUITY_PLAYBOOK.md` — identity/reference workflow
-- `research/ACTOR_LIKENESS_AND_CHARACTER_DESIGN.md` — real actors, licensed likeness, synthetic casting, archetype references, and rights metadata
+- `research/CHARACTER_CONTINUITY_PLAYBOOK.md` — identity/reference workflow, Character DNA, Style Bible and vision retry
+- `research/ACTOR_LIKENESS_AND_CHARACTER_DESIGN.md` — real actors, licensed likeness, synthetic casting, archetype references and rights metadata
 - `research/OPEN_SOURCE_SYSTEMS_TO_STUDY.md` — working public systems and architecture patterns to reverse engineer
+- `research/WIND_COMIC_DEEP_DIVE.md` — source-level extraction of the strongest working open-source reference found so far
 - `research/RESEARCH_PAPERS_AND_BENCHMARKS.md` — DramaDirector, One Sentence One Drama, Co-Director, benchmark lessons
 - `research/FREE_FIRST_MODEL_STRATEGY.md` — OpenRouter free/pinned model experiments and paid-model promotion rules
-- `research/PRODUCTION_STACK_2026.md` — current LLM/image/video/voice/lipsync/edit/QC stack
+- `research/PRODUCTION_STACK_2026.md` — current LLM/image/video/voice/lipsync/edit/QC stack and provider contracts
 - `research/TRIAL_01_EXPERIMENT_PLAN.md` — free-first 3-episode pilot plan
-- `research/CODING_READINESS_CHECKLIST.md` — remaining research/implementation decisions before coding
+- `research/CODING_READINESS_CHECKLIST.md` — coding gate and remaining empirical selections
 
 ## High-confidence findings
 
 1. AI microdrama production is already commercially viable at scale.
 2. The pipeline matters more than any single model.
 3. Character/reference locking is essential.
-4. Real performers can participate through licensed digital likeness/performance capture, but commercial Xerama should not depend on unauthorized celebrity replicas.
-5. Original synthetic performers should be reusable identity assets with permanent root references.
-6. Story/script/shot planning happens before expensive generation.
-7. Episodes are assembled from individual generated shots/clips.
-8. Storyboard/first/reference frames are valuable anchors for video.
-9. Different video models can be routed to different shot types.
-10. Reviewer loops and targeted regeneration are preferable to regenerating whole episodes.
-11. Persistent canon, visual assets, and state are necessary for series consistency.
-12. Deterministic editing is preferable once generated assets are approved.
-13. Benchmark telemetry is required before deciding whether a paid model is worth the cost.
-14. Multiple open-source projects already implement large parts of the architecture Xerama needs.
+4. Character DNA can reinforce visual references across providers/shots.
+5. A canonical Style Bible is useful for production-wide visual consistency.
+6. Real performers can participate through licensed digital likeness/performance capture, but commercial Xerama should not depend on unauthorized celebrity replicas.
+7. Original synthetic performers should be reusable identity assets with permanent root references.
+8. Story/script/shot planning happens before expensive generation.
+9. Episodes are assembled from individual generated shots/clips.
+10. Storyboard/first/reference frames are valuable anchors for video.
+11. The actual last frame of a generated clip can improve continuity into the next connected shot.
+12. Different video models can be routed to different shot types based on declared capabilities.
+13. Provider health/fallback should be part of routing, not an afterthought.
+14. Reviewer loops and targeted regeneration are preferable to regenerating whole episodes.
+15. Persistent canon, visual assets and state are necessary for series consistency.
+16. Deterministic editing is preferable once generated assets are approved.
+17. Persistent jobs and asset storage are required for a reliable production system.
+18. Benchmark telemetry is required before deciding whether a paid model is worth the cost.
+19. Cost per accepted output is more meaningful than raw API price.
+20. Multiple open-source projects already implement large parts of the architecture Xerama needs.
+21. Wind Comic provides a particularly mature working reference for many of these patterns.
+22. Architecture research is no longer the main blocker; empirical model/provider benchmarking is.
 
 ## Existing systems that deserve source-level study
 
+Primary reference:
 - Wind Comic: https://github.com/ChrisChen667788/wind-comic
+
+Additional systems:
 - AI Short Film: https://github.com/wushaojun321/ai-short-film
 - StoryMind: https://github.com/LinHao-city/StoryMind
 - AI Video Pipeline: https://github.com/0xadvait/ai-video-pipeline
@@ -94,7 +112,7 @@ These are useful operational sources but can market their own products/services;
 
 ## Important uncertainties to test ourselves
 
-- Which free OpenRouter models are best for concept, dialogue, judge, and continuity?
+- Which free OpenRouter models are best for concept, dialogue, judge and continuity?
 - How much does two-model candidate generation improve story quality?
 - Which image generator gives the best identity lock per accepted image?
 - Which video model gives the lowest cost per accepted second for each shot type?
@@ -109,4 +127,4 @@ These are useful operational sources but can market their own products/services;
 
 When implementation starts, every external model/provider integration should be treated as an adapter behind a Xerama capability contract. No production workflow should depend on one vendor continuing to expose today's exact model/version.
 
-Any external source code reused in Xerama must have its license and source commit recorded first.
+Any external source code reused in Xerama must have its license and exact source commit recorded first.
