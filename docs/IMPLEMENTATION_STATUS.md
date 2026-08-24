@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-037/038 (Music Engine, Sound Effects)._
+_Last updated: 2026-08-25 - MODULE-039 (Subtitle Engine)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -78,7 +78,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 344 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 370 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -842,6 +842,52 @@ points, so this is judged already-adequate rather than a gap).
   SFX-derivation keyword/timing/cap behavior, both repositories, both
   services' approve-gating/re-link-resets-approval, and end-to-end API
   coverage for both cue types).
+
+### MODULE-039 - Subtitle Engine
+
+- **`SubtitleCue`** (`domain/subtitle.py`) - one cue per dialogue shot:
+  `text` (raw), `lines` (word-wrapped for mobile safe areas), timing, and
+  optional `character_id` (only set when exactly one character is on
+  screen - ambiguous multi-speaker shots leave it unset rather than
+  guessing).
+- **`pipeline/subtitle_generation.py`** - fully deterministic, no LLM call:
+  `cues_from_shot_plan` walks every shot in scene/shot order, accumulating
+  a running cumulative time offset (summing *every* shot's
+  `duration_seconds`, dialogue or not) so each dialogue cue lands at its
+  correct position in the assembled episode timeline - there is no editor/
+  assembly stage yet (MODULE-046) to derive this from otherwise, so the
+  shot plan is the only currently-available source of truth for episode-
+  level timing. `wrap_subtitle_text` is a plain greedy word-wrap (32 chars/
+  line default, never splits a single word). `export_srt`/
+  `format_srt_timestamp` produce standard SRT text - `SRT is used as the
+  "or equivalent" format; ASS was judged unnecessary extra surface for
+  Trial 01.
+- **`SubtitleValidator.check_readability`** (`pipeline/subtitle_validators.py`)
+  - same pass/warn shape as `DirectorValidator` (ADR-018): WARN on reading
+  speed over 17 chars/second, more than 2 lines, a line over 32 chars, or
+  non-positive cue duration. "Respect 9:16 safe areas, line length and
+  reading speed" enforced as one deterministic check, not left to be
+  fixed manually after the fact.
+- **Idempotent regeneration** - `SubtitleService.generate_track` /
+  `SubtitleCueRepository.replace_track` delete every existing cue for the
+  `(episode_id, language)` pair before inserting the new ones - "keep
+  subtitles deterministic from approved script/audio timing" means
+  regenerating from the same plan always converges to the same track
+  rather than accumulating duplicates across calls.
+- **API** - `POST /episodes/{id}/subtitles/generate?language=`,
+  `GET /episodes/{id}/subtitles?language=`,
+  `GET /episodes/{id}/subtitles/export.srt?language=` (plain-text SRT
+  response), `GET /episodes/{id}/subtitles/validate?language=`.
+  `language` defaults to `"en"` everywhere - "support language/
+  localization fields" is satisfied by scoping the whole track (and every
+  cue) by language rather than a single hardcoded locale.
+- **Migration** - `alembic/versions/f82b2a45f05f_add_subtitle_cues.py`.
+- Acceptance criterion met: every dialogue episode can produce validated
+  subtitle assets automatically (`generate` -> `validate` -> `export.srt`
+  requires no manual timing/wrapping work) - verified by 26 new tests
+  (domain, generation incl. cumulative-timing/multi-speaker/special-
+  character export, readability validator, repository idempotent-replace/
+  language-scoping, service, and end-to-end API coverage).
 
 ## Partially implemented
 

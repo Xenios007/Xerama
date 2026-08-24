@@ -4,6 +4,24 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-039 - Subtitle Engine)
+
+- `SubtitleCue`: text/wrapped-lines/timing/optional character attribution
+  per dialogue shot.
+- `pipeline/subtitle_generation.py`: deterministic cue derivation from the
+  approved shot plan with cumulative episode-timeline offsets, greedy
+  word-wrap, and SRT export/timestamp formatting.
+- `SubtitleValidator.check_readability`: WARN on reading speed, line
+  count, line length, or non-positive duration (9:16 safe-area/mobile
+  readability guidance).
+- `SubtitleService`/`SubtitleCueRepository.replace_track`: regeneration
+  replaces the whole (episode, language) track rather than accumulating.
+- New API: `POST /episodes/{id}/subtitles/generate`,
+  `GET /episodes/{id}/subtitles[/export.srt|/validate]` (all
+  `language`-scoped, default `"en"`).
+- Migration for `subtitle_cues`.
+- 26 new tests (domain, generation, validators, repository, service, API).
+
 ### Added (MODULE-037 / MODULE-038 - Music Engine, Sound Effects)
 
 - `RightsMetadata`: shared license/source/rights-owner model for both cue
