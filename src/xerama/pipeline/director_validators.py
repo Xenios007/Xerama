@@ -13,7 +13,7 @@ from collections import defaultdict
 from xerama.domain.enums import QCStatus
 from xerama.domain.episode import EpisodeScript
 from xerama.domain.quality import QCResult
-from xerama.domain.scene import EpisodeShotPlan
+from xerama.domain.scene import EpisodeShotPlan, Shot
 
 
 class DirectorValidator:
@@ -127,6 +127,70 @@ class DirectorValidator:
             reasons=reasons,
             repair_recommendation=(
                 "Fix continuity_group assignment so grouped shots are contiguous and hand off frames."
+                if reasons
+                else ""
+            ),
+        )
+
+    def check_scene_blocking(self, plan: EpisodeShotPlan) -> QCResult:
+        """See MODULE-022 - validate multi-character blocking data
+        integrity and screen-direction preservation across a
+        continuity_group. Shots without a `blocking_plan` are skipped -
+        the structured plan is optional, layered on top of free-text
+        `blocking`."""
+
+        reasons: list[str] = []
+        for scene in plan.scenes:
+            shots_sorted = sorted(scene.shots, key=lambda s: s.shot_number)
+            for shot in shots_sorted:
+                if shot.blocking_plan is None:
+                    continue
+                blocked_ids = {cb.character_id for cb in shot.blocking_plan.characters}
+                missing = [cid for cid in shot.character_ids if cid not in blocked_ids]
+                if missing:
+                    reasons.append(
+                        f"scene {scene.scene_number} shot {shot.shot_number} blocking_plan is missing "
+                        f"CharacterBlock entries for {missing}"
+                    )
+                visible = [cb for cb in shot.blocking_plan.characters if cb.visible]
+                for i, a in enumerate(visible):
+                    for b in visible[i + 1 :]:
+                        same_spot = a.position == b.position and a.depth == b.depth
+                        documented = b.character_id in a.occluded_by or a.character_id in b.occluded_by
+                        if same_spot and not documented:
+                            reasons.append(
+                                f"scene {scene.scene_number} shot {shot.shot_number}: "
+                                f"{a.character_id} and {b.character_id} share position={a.position.value}/"
+                                f"depth={a.depth.value} without a documented occlusion"
+                            )
+
+            by_group: dict[str, list[Shot]] = defaultdict(list)
+            for shot in shots_sorted:
+                if shot.continuity_group:
+                    by_group[shot.continuity_group].append(shot)
+            for group, shots_in_group in by_group.items():
+                directions = {
+                    s.blocking_plan.screen_direction
+                    for s in shots_in_group
+                    if s.blocking_plan and s.blocking_plan.screen_direction
+                }
+                if len(directions) > 1:
+                    reasons.append(
+                        f"scene {scene.scene_number} continuity_group '{group}' changes screen_direction "
+                        f"across shots ({sorted(directions)}) without an explicit reset"
+                    )
+
+        missing_reasons = [r for r in reasons if "missing CharacterBlock" in r]
+        status = QCStatus.BLOCK if missing_reasons else (QCStatus.WARN if reasons else QCStatus.PASS)
+        score = 0.0 if status == QCStatus.BLOCK else max(0.0, 10.0 - 2 * len(reasons))
+        return QCResult(
+            gate="director_scene_blocking",
+            status=status,
+            score=score,
+            reasons=reasons,
+            repair_recommendation=(
+                "Add a CharacterBlock for every character in the shot and keep continuity-group "
+                "screen_direction consistent."
                 if reasons
                 else ""
             ),
