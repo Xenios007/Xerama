@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.pipeline.episode_engine import EpisodeEngine
 from xerama.pipeline.orchestrator import Showrunner
+from xerama.providers.image import ImageProvider
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyAssetRepository,
@@ -20,9 +21,13 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyProjectRepository,
     SQLAlchemySeasonRepository,
     SQLAlchemySeriesRepository,
+    SQLAlchemyStoryboardRepository,
+    SQLAlchemyStyleBibleRepository,
 )
 from xerama.services.asset_service import AssetService
 from xerama.services.character_casting_service import CharacterCastingService
+from xerama.services.storyboard_service import StoryboardService
+from xerama.services.style_bible_service import StyleBibleService
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -55,6 +60,30 @@ def get_character_casting_service(
     session: AsyncSession = Depends(get_session),
 ) -> CharacterCastingService:
     return CharacterCastingService(repo=SQLAlchemyCharacterCastingRepository(session))
+
+
+def get_style_bible_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyStyleBibleRepository:
+    return SQLAlchemyStyleBibleRepository(session)
+
+
+def get_style_bible_service(
+    session: AsyncSession = Depends(get_session),
+) -> StyleBibleService:
+    return StyleBibleService(repo=SQLAlchemyStyleBibleRepository(session))
+
+
+def get_storyboard_service(
+    session: AsyncSession = Depends(get_session),
+    storage: LocalStorageProvider = Depends(get_storage_provider),
+) -> StoryboardService:
+    return StoryboardService(
+        storyboard_repo=SQLAlchemyStoryboardRepository(session),
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+    )
+
+
+def get_image_provider(request: Request) -> ImageProvider:
+    return request.app.state.image_provider
 
 
 def get_project_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyProjectRepository:

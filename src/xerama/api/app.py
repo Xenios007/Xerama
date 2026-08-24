@@ -7,10 +7,21 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI
 
-from xerama.api.routers import assets, characters, episodes, generation, inspect, projects, season
+from xerama.api.routers import (
+    assets,
+    characters,
+    episodes,
+    generation,
+    inspect,
+    projects,
+    season,
+    storyboards,
+    style_bible,
+)
 from xerama.config import ModelRoleRegistry, Settings, get_settings
 from xerama.db.base import create_all, make_engine, make_session_factory
 from xerama.pipeline.ai_gateway import AIGateway
+from xerama.providers.fake_image import FakeImageProvider
 from xerama.providers.health import ProviderHealthTracker
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.providers.openrouter import OpenRouterProvider
@@ -46,6 +57,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ai_gateway = gateway
     app.state.http_client = http_client
     app.state.storage_provider = LocalStorageProvider(settings.asset_storage_path)
+    # No free/trial image API is wired up yet - see Module 06. Manual asset
+    # upload (Module 04) is the first-class fallback until one is added.
+    app.state.image_provider = FakeImageProvider()
 
     yield
 
@@ -67,6 +81,8 @@ def create_app() -> FastAPI:
     app.include_router(episodes.router)
     app.include_router(assets.router)
     app.include_router(characters.router)
+    app.include_router(style_bible.router)
+    app.include_router(storyboards.router)
     return app
 
 

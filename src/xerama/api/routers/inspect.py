@@ -4,7 +4,7 @@ the synchronous POST /generate-series response - see README.md
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from xerama.api.deps import get_episode_repo, get_job_repo, get_series_repo
+from xerama.api.deps import get_episode_repo, get_job_repo, get_series_repo, get_style_bible_repo
 from xerama.domain.character import CharacterCast
 from xerama.domain.generation_request import ShotGenerationRequest
 from xerama.domain.scene import EpisodeShotPlan
@@ -17,6 +17,7 @@ from xerama.repositories.interfaces import (
     JobRepository,
     SeriesRecord,
     SeriesRepository,
+    StyleBibleRepository,
 )
 
 router = APIRouter(tags=["inspect"])
@@ -85,6 +86,7 @@ async def get_generation_requests(
     episode_id: str,
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
+    style_bible_repo: StyleBibleRepository = Depends(get_style_bible_repo),
 ) -> list[ShotGenerationRequest]:
     """Compiles the approved shot plan into provider-neutral generation
     requests on demand - see modules/03_DIRECTOR_PROMPT_COMPILER.md.
@@ -99,4 +101,5 @@ async def get_generation_requests(
     if bible is None:
         raise HTTPException(status_code=409, detail="series has no approved Series Bible yet")
     cast = await series_repo.get_cast(episode.series_id)
-    return PromptCompiler().compile_episode(plan, cast, bible)
+    style_bible = await style_bible_repo.get_or_create(episode.series_id)
+    return PromptCompiler().compile_episode(plan, cast, bible, style_bible)
