@@ -117,6 +117,27 @@ class AudioMode(str, Enum):
     HYBRID = "hybrid"
 
 
+class ScreenPosition(str, Enum):
+    """See MODULE-022 - lightweight left/center/right blocking, extensible
+    to real coordinates later. Deliberately five positions, not a
+    continuous axis - matches the module's "keep schema extensible to
+    coordinates later" rather than building a full 3D engine now."""
+
+    LEFT = "left"
+    CENTER_LEFT = "center_left"
+    CENTER = "center"
+    CENTER_RIGHT = "center_right"
+    RIGHT = "right"
+
+
+class BlockingDepth(str, Enum):
+    """See MODULE-022 - depth relative to camera."""
+
+    FOREGROUND = "foreground"
+    MIDGROUND = "midground"
+    BACKGROUND = "background"
+
+
 class ProviderErrorKind(str, Enum):
     """See docs/ARCHITECTURE.md section 12 (Provider Health)."""
 

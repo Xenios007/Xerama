@@ -320,6 +320,7 @@ class Shot(Base):
     camera: Mapped[dict] = mapped_column(JSON, default=dict)
     visual: Mapped[dict] = mapped_column(JSON, default=dict)
     blocking: Mapped[str] = mapped_column(Text, default="")
+    blocking_plan: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     references: Mapped[dict] = mapped_column(JSON, default=dict)
     micro_beats: Mapped[list] = mapped_column(JSON, default=list)
     audio_mode: Mapped[str] = mapped_column(String(16), default="native")

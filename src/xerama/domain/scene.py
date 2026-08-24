@@ -7,7 +7,7 @@ No media generation happens in XER-001. This schema exists so later stages
 
 from pydantic import BaseModel, Field
 
-from xerama.domain.enums import AudioMode
+from xerama.domain.enums import AudioMode, BlockingDepth, ScreenPosition
 
 
 class Camera(BaseModel):
@@ -56,6 +56,46 @@ class ProviderRequirements(BaseModel):
     native_audio_required: bool = False
 
 
+class CharacterBlock(BaseModel):
+    """Where one character sits in the frame for a shot - see MODULE-022
+    Scene Blocking. Lightweight left/center/right + depth, not real
+    coordinates; `facing`/`occluded_by` stay free text/id-list so this
+    never needs a full 3D engine to be useful."""
+
+    character_id: str
+    position: ScreenPosition = ScreenPosition.CENTER
+    depth: BlockingDepth = BlockingDepth.MIDGROUND
+    facing: str = ""
+    visible: bool = True
+    speaking: bool = False
+    reacting: bool = False
+    occluded_by: list[str] = Field(default_factory=list)
+
+
+class MovementBeat(BaseModel):
+    """A character's position change within a shot - see MODULE-022."""
+
+    start_seconds: float
+    end_seconds: float
+    character_id: str
+    description: str = ""
+    from_position: ScreenPosition | None = None
+    to_position: ScreenPosition | None = None
+
+
+class SceneBlocking(BaseModel):
+    """Structured actor placement/movement for one shot - see MODULE-022.
+    Additive alongside `Shot.blocking` (free text); this is what
+    `DirectorValidator.check_scene_blocking` actually validates."""
+
+    characters: list[CharacterBlock] = Field(default_factory=list)
+    movement_beats: list[MovementBeat] = Field(default_factory=list)
+    # The established movement/eyeline axis for this shot (e.g.
+    # "left_to_right") - checked for consistency across a continuity_group
+    # so "preserve screen direction across connected shots" is verifiable.
+    screen_direction: str = ""
+
+
 class Shot(BaseModel):
     """See docs/ARCHITECTURE.md section 9 (Shot Contract)."""
 
@@ -68,10 +108,12 @@ class Shot(BaseModel):
     duration_seconds: float = Field(gt=0)
     camera: Camera = Field(default_factory=Camera)
     visual: Visual = Field(default_factory=Visual)
-    # Deliberately free text, not a coordinate/spatial system - see
-    # modules/03_DIRECTOR_PROMPT_COMPILER.md "Avoid overengineering spatial
-    # blocking V1".
+    # Deliberately free text, not a coordinate/spatial system - "avoid
+    # overengineering spatial blocking V1". `blocking_plan` (MODULE-022)
+    # adds optional lightweight structure alongside this prose without
+    # replacing it.
     blocking: str = ""
+    blocking_plan: SceneBlocking | None = None
     references: ShotReferences = Field(default_factory=ShotReferences)
     micro_beats: list[MicroBeat] = Field(default_factory=list)
     audio_mode: AudioMode = AudioMode.NATIVE
