@@ -18,12 +18,21 @@ group) have no such ordering constraint and may generate concurrently.
 Failed/rejected takes never invalidate or force regeneration of any other
 shot's takes - there is no cascading invalidation here, unlike episode/
 canon regeneration (Module 02).
+
+`generate_lip_synced_take` (MODULE-036) reuses this same per-shot
+production record and take-numbering rather than a fourth parallel
+workflow table: a lip-synced clip is just another way to produce a video
+take for a shot, so it lives here next to `generate_take`. Source video/
+audio assets are read, never mutated - the synced result is always a new
+take, and rejecting it never corrupts either source.
 """
 
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetType
 from xerama.domain.generation_request import ShotGenerationRequest
+from xerama.domain.scene import SceneBlocking
 from xerama.domain.video_production import ShotVideoProduction
 from xerama.providers.frame_extractor import FrameExtractor
+from xerama.providers.lip_sync import LipSyncProvider, LipSyncRequest
 from xerama.providers.video import VideoGenerationRequest, VideoProvider, matches_requirements
 from xerama.repositories.interfaces import VideoProductionRepository
 from xerama.services.asset_service import AssetService
@@ -33,6 +42,14 @@ from xerama.services.media_router import MediaProviderRouter
 class ContinuityOrderingError(ValueError):
     """Raised when a shot in a continuity group is requested before its
     immediate predecessor has an accepted, last-frame-extracted take."""
+
+
+class LipSyncEligibilityError(ValueError):
+    """Raised when the target character isn't eligible for lip sync in
+    this shot (per MODULE-022's structured `SceneBlocking`, when
+    available) - "validate visible speaker" without needing real face
+    detection: a character explicitly marked not-visible in the shot's
+    blocking plan cannot be lip-synced."""
 
 
 class VideoProductionService:
@@ -154,6 +171,83 @@ class VideoProductionService:
             duration_seconds=request.duration_seconds,
             take_number=take_number,
         )
+
+    async def generate_lip_synced_take(
+        self,
+        production_id: str,
+        project_id: str,
+        source_video_asset_id: str,
+        source_audio_asset_id: str,
+        lip_sync_router: MediaProviderRouter[LipSyncProvider],
+        duration_seconds: float,
+        aspect_ratio: str = "9:16",
+        character_id: str | None = None,
+        blocking_plan: SceneBlocking | None = None,
+        series_id: str | None = None,
+    ) -> Asset:
+        """Synchronize a controlled dialogue take (MODULE-034/035) onto a
+        visible speaking character's video take (MODULE-036) - only when
+        native audio is insufficient. `source_video_asset_id`/
+        `source_audio_asset_id` are read, never mutated; the result is
+        always a new take for this shot."""
+        production = await self.get(production_id)
+        self._validate_lip_sync_eligibility(character_id, blocking_plan)
+        video_bytes = await self._asset_service.read_bytes(source_video_asset_id)
+        audio_bytes = await self._asset_service.read_bytes(source_audio_asset_id)
+
+        def is_compatible(provider: LipSyncProvider) -> bool:
+            capabilities = provider.capabilities
+            if aspect_ratio not in capabilities.supported_aspects:
+                return False
+            return duration_seconds <= capabilities.max_duration_seconds
+
+        async def call(provider: LipSyncProvider) -> bytes:
+            return await provider.sync(
+                LipSyncRequest(aspect_ratio=aspect_ratio, duration_seconds=duration_seconds),
+                video_bytes,
+                audio_bytes,
+            )
+
+        provider, data, attempts = await lip_sync_router.generate(is_compatible, call)
+
+        take_number = await self._next_take_number(project_id, production)
+        return await self._asset_service.ingest_bytes(
+            data,
+            AssetType.VIDEO,
+            AssetOwnership(
+                project_id=project_id,
+                series_id=series_id,
+                episode_id=production.episode_id,
+                scene_number=production.scene_number,
+                shot_number=production.shot_number,
+            ),
+            provenance=AssetProvenance(
+                provider=provider.name,
+                source_reference_asset_ids=[source_video_asset_id, source_audio_asset_id],
+                generation_params={
+                    "lip_synced": True,
+                    "routing_attempts": [a.model_dump() for a in attempts],
+                },
+            ),
+            mime_type="video/mp4",
+            ext=".mp4",
+            duration_seconds=duration_seconds,
+            take_number=take_number,
+        )
+
+    def _validate_lip_sync_eligibility(
+        self, character_id: str | None, blocking_plan: SceneBlocking | None
+    ) -> None:
+        if character_id is None or blocking_plan is None:
+            return  # nothing structured to validate against - permissive
+        block = next(
+            (cb for cb in blocking_plan.characters if cb.character_id == character_id), None
+        )
+        if block is not None and not block.visible:
+            raise LipSyncEligibilityError(
+                f"{character_id} is marked not visible in this shot's blocking plan - "
+                "not eligible for lip sync"
+            )
 
     async def upload_take(
         self,
