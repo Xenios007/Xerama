@@ -27,6 +27,7 @@ async def client(tmp_path):
             json.dumps(fx.judge_result("A")),
             json.dumps(fx.bible()),
             json.dumps(fx.cast()),
+            json.dumps(fx.season_plan()),
             json.dumps(fx.outline_set(3)),
             json.dumps(fx.script()),
             json.dumps(fx.shot_plan()),
@@ -92,6 +93,31 @@ async def test_generate_series_end_to_end(client: httpx.AsyncClient) -> None:
     shots_response = await client.get(f"/episodes/{episode1_id}/shots")
     assert shots_response.status_code == 200
     assert shots_response.json()["scenes"][0]["shots"][0]["camera"]["shot_size"] == "close-up"
+
+    season_plan_response = await client.get(f"/series/{series_id}/season-plan")
+    assert season_plan_response.status_code == 200
+    season_body = season_plan_response.json()
+    assert season_body["version"] == 1
+    assert season_body["status"] == "draft"
+    assert len(season_body["plan"]["episode_assignments"]) == 3
+
+    versions_response = await client.get(f"/series/{series_id}/season-plan/versions")
+    assert len(versions_response.json()) == 1
+
+    approve_response = await client.post(f"/series/{series_id}/season-plan/1/approve")
+    assert approve_response.status_code == 200
+    assert approve_response.json()["status"] == "approved"
+
+    current_after_approve = await client.get(f"/series/{series_id}/season-plan")
+    assert current_after_approve.json()["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_season_plan_404_before_generation(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    response = await client.get(f"/series/{project_id}/season-plan")
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyEpisodeRepository,
     SQLAlchemyJobRepository,
     SQLAlchemyProjectRepository,
+    SQLAlchemySeasonRepository,
     SQLAlchemySeriesRepository,
 )
 
@@ -24,6 +25,7 @@ def _showrunner(session, provider: FakeLLMProvider) -> Showrunner:
         gateway=gateway,
         concept_repo=SQLAlchemyConceptRepository(session),
         series_repo=SQLAlchemySeriesRepository(session),
+        season_repo=SQLAlchemySeasonRepository(session),
         episode_repo=SQLAlchemyEpisodeRepository(session),
         job_repo=SQLAlchemyJobRepository(session),
     )
@@ -46,6 +48,7 @@ async def test_continuity_block_triggers_one_targeted_retry(session) -> None:
             json.dumps(fx.judge_result("A")),
             json.dumps(fx.bible()),
             json.dumps(fx.cast()),
+            json.dumps(fx.season_plan()),
             json.dumps(fx.outline_set(3)),
             json.dumps(fx.script()),
             json.dumps(_broken_shot_plan()),  # attempt 1: BLOCKed
@@ -95,6 +98,7 @@ async def test_persistent_continuity_block_gives_up_after_max_attempts(session) 
             json.dumps(fx.judge_result("A")),
             json.dumps(fx.bible()),
             json.dumps(fx.cast()),
+            json.dumps(fx.season_plan()),
             json.dumps(fx.outline_set(3)),
             json.dumps(fx.script()),
             json.dumps(_broken_shot_plan()),  # attempt 1: BLOCKed
@@ -111,7 +115,7 @@ async def test_persistent_continuity_block_gives_up_after_max_attempts(session) 
     await session.commit()
 
     assert result.continuity_qc.status == QCStatus.BLOCK
-    assert len(provider.calls) == 9  # no third attempt
+    assert len(provider.calls) == 10  # no third attempt
 
 
 @pytest.mark.asyncio
@@ -126,6 +130,7 @@ async def test_canon_changes_committed_when_qc_not_blocked(session) -> None:
             json.dumps(fx.judge_result("A")),
             json.dumps(fx.bible()),
             json.dumps(fx.cast()),
+            json.dumps(fx.season_plan()),
             json.dumps(outline_set),
             json.dumps(fx.script()),
             json.dumps(fx.shot_plan()),
@@ -172,6 +177,7 @@ async def test_canon_changes_not_committed_when_continuity_blocked(session) -> N
             json.dumps(fx.judge_result("A")),
             json.dumps(fx.bible()),
             json.dumps(fx.cast()),
+            json.dumps(fx.season_plan()),
             json.dumps(outline_set),
             json.dumps(fx.script()),
             json.dumps(_broken_shot_plan()),

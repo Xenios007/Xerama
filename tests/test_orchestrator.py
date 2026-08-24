@@ -15,6 +15,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyEpisodeRepository,
     SQLAlchemyJobRepository,
     SQLAlchemyProjectRepository,
+    SQLAlchemySeasonRepository,
     SQLAlchemySeriesRepository,
 )
 
@@ -25,6 +26,7 @@ def _showrunner(session, provider: FakeLLMProvider) -> Showrunner:
         gateway=gateway,
         concept_repo=SQLAlchemyConceptRepository(session),
         series_repo=SQLAlchemySeriesRepository(session),
+        season_repo=SQLAlchemySeasonRepository(session),
         episode_repo=SQLAlchemyEpisodeRepository(session),
         job_repo=SQLAlchemyJobRepository(session),
     )
@@ -37,6 +39,7 @@ def _full_response_queue(decision: str, title_a: str = "A", title_b: str = "B") 
         json.dumps(fx.judge_result(decision)),
         json.dumps(fx.bible()),
         json.dumps(fx.cast()),
+        json.dumps(fx.season_plan()),
         json.dumps(fx.outline_set(3)),
         json.dumps(fx.script()),
         json.dumps(fx.shot_plan()),
@@ -62,6 +65,17 @@ async def test_full_pipeline_end_to_end_decision_a(session) -> None:
     assert result.bible.title == "Blood Sisters"
     assert len(result.cast.characters) == 2
     assert len(result.outlines) == 3
+    assert result.season_qc.status == QCStatus.PASS
+    assert len(result.season_plan.episode_assignments) == 3
+    assert result.season_plan_id
+
+    from xerama.repositories.sqlalchemy_impl import SQLAlchemySeasonRepository
+
+    season_repo = SQLAlchemySeasonRepository(session)
+    current_plan = await season_repo.get_current_plan(result.series_id)
+    assert current_plan is not None
+    assert current_plan.version == 1
+    assert current_plan.plan.episode_count == 3
     assert result.episode1_script.scenes[0].dialogue[0].line == "This can't be real."
     assert result.episode1_shot_plan.scenes[0].shots[0].camera.shot_size == "close-up"
     # The fixture shot plan only has one 5s shot against a 75s target, so the
@@ -97,8 +111,8 @@ async def test_full_pipeline_persists_jobs_for_every_stage(session) -> None:
     rows = (await session.execute(select(m.GenerationJob))).scalars().all()
     # concept_generation, judge, concept_merge (still a job even for A/B - no
     # LLM call happens inside it, but the stage transition is still tracked),
-    # bible, characters, outlines, script, shots.
-    assert len(rows) == 8
+    # bible, characters, season_plan, outlines, script, shots.
+    assert len(rows) == 9
     assert all(row.status == JobStatus.SUCCEEDED.value for row in rows)
 
 
