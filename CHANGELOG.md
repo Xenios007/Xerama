@@ -4,6 +4,29 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (Module 01 - Season & Reveal Engine)
+
+- `SeasonPlan` domain model (acts, mysteries, promises, reveal ladder with
+  audience-knowledge tracking, escalation milestones, character-arc
+  milestones, episode assignments) implementing the XER-006 macro-story
+  layer between the Series Bible and per-episode generation.
+- `SeasonStage` generates a validated season plan for the full requested
+  episode count from the approved bible + cast.
+- `SeasonValidator`: episode coverage, reveal ordering (no premature
+  reveals), setup-before-payoff, resolved-thread consistency, "no
+  continuation hook" warning, escalation-progression, character-arc
+  coverage, and repeated-cliffhanger/no-progress checks.
+- Versioned `SeasonPlanRecord` persistence (regenerations never overwrite -
+  ADR-19) with a closed-loop retry (one regeneration with validator feedback
+  on `BLOCK`, mirroring the existing shot-plan retry).
+- `Showrunner` now generates/persists the season plan before episode
+  outlines and feeds it into outline generation as binding context.
+- New API: `GET/POST /series/{id}/season-plan[...]` (current, versions, one
+  version, regenerate, approve).
+- Alembic migration for the `season_plans` table.
+- 25 new tests (domain schema, validator heuristics, repository versioning,
+  updated pipeline/API coverage).
+
 ### Added
 
 - Closed-loop QC retry: a `BLOCK`-level continuity result on the shot plan

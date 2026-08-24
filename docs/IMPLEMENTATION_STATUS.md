@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-24 - first coding session (XER-001)._
+_Last updated: 2026-08-25 - Module 01 (Season & Reveal Engine)._
 
 This tracks what actually exists in `src/xerama` against the architecture in
 `docs/` and `research/`, per the project rule "when implementation reveals
@@ -69,11 +69,44 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 39 tests covering schema validation, repository round-trips,
-  OpenRouter response parsing + error mapping (respx-mocked, no network),
-  AI-gateway repair/retry, judge/merge logic, validator heuristics, full
-  pipeline success + mid-pipeline-failure paths, and the HTTP API end to end
-  - all against `FakeLLMProvider`, no paid API calls required.
+- **Tests** - 77 tests (see `tests/`), all against `FakeLLMProvider` /
+  respx-mocked HTTP, no paid API calls required.
+
+### Module 01 - Season & Reveal Engine (XER-006)
+
+- **Domain** (`xerama/domain/season.py`) - `SeasonPlan` (acts, mysteries,
+  promises, reveal ladder, escalation milestones, character-arc milestones,
+  episode assignments). Audience knowledge is tracked separately from
+  character knowledge per reveal (`RevealMilestone.audience_knowledge_before
+  /_after`), matching docs/STORY_FORMULA.md section 3.
+- **Season stage** (`pipeline/season_stage.py`) - generates a `SeasonPlan`
+  for the full requested episode count from the approved Series Bible + cast
+  (`story_architect` role, consistent with the existing role-mapping
+  decision below).
+- **Season validator** (`pipeline/season_validators.py`) - deterministic
+  pass/warn/block checks: episode coverage, reveal ordering (a reveal can't
+  precede the mystery it resolves or a reveal it depends on), setup-before-
+  payoff, "resolved" threads must record a resolution/payoff episode, a
+  season that resolves every thread warns (no continuation hook), escalation
+  must trend upward, every character needs at least one arc milestone,
+  cliffhanger types can't repeat back-to-back, and every episode must show
+  some reveal/promise/character-arc progress.
+- **Persistence** - `SeasonPlanRecord` table, versioned (never overwritten -
+  ADR-019): each regeneration inserts a new version; `get_current_plan`
+  returns the latest *approved* version if one exists, else the latest
+  version overall.
+- **Closed-loop retry** - a `BLOCK` season plan triggers one regeneration
+  with the validator's reasons fed back into the prompt (same pattern as the
+  shot-plan retry), then persists whatever the final attempt produced.
+- **Orchestrator integration** - `Showrunner.run()` now generates and
+  persists the season plan between cast and episode-outline generation, and
+  passes it into `EpisodeStage.generate_outlines` as binding context (an
+  outline "MUST follow that episode's assigned act, reveals, promises and
+  escalation level"). `PipelineResult` carries `season_plan_id`/
+  `season_plan`/`season_qc`.
+- **API** - `GET /series/{id}/season-plan` (current), `GET .../versions`,
+  `GET .../{version}`, `POST .../regenerate`, `POST .../{version}/approve`.
+- **Migration** - `alembic/versions/276af56e655b_add_season_plans.py`.
 
 ## Partially implemented
 
@@ -96,12 +129,13 @@ documentation - do not silently diverge."
 
 - Director/Media Engine: image/video/voice/lip-sync provider adapters,
   Style Bible table, storage provider abstraction, FFmpeg assembly.
-- Season/reveal architecture beyond per-episode outlines (XER-006 scope).
-- Episode 2+ scripts (outlines exist for the full requested count; only
-  Episode 1 gets a full script/shot plan per the XER-001 milestone scope).
+- Episode 2+ scripts (outlines now derive from the season plan for the full
+  requested count; only Episode 1 gets a full script/shot plan - Module 02
+  extends this into a real multi-episode engine).
 - Analytics/learning feedback loop (Phase 5).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
+- See `modules/README.md` for the full remaining module list (02-14).
 
 ## Blocked
 
@@ -134,10 +168,18 @@ consistent enough to start coding per
    misclassification is a soft/cosmetic issue (the original description is
    always preserved) rather than a correctness bug. Revisit with an LLM
    classification call if/when a consumer starts relying on `change_type`.
-4. **Model-role -> stage mapping** - the roadmap/AI_MODELS.md role table
-   doesn't say which role owns "series bible", "characters", or "episode
-   outlines" specifically. This implementation assigns all three to
-   `story_architect` (series/season structure, per its stated
+4. **"Unresolved end-state" check (Module 01)** - `modules/01_SEASON_REVEAL_ENGINE.md`
+   doesn't define what this validation means. Implemented as: (a) BLOCK if a
+   thread is marked `resolved` without recording the episode it resolved in,
+   or if a resolution/payoff episode falls outside the season (data
+   integrity); (b) WARN if literally every mystery/promise resolves within
+   the season, since docs/STORY_FORMULA.md's closing principle is to
+   "optimize for continuation" - a fully-closed season is fine for a
+   deliberate finale but should not happen by accident.
+5. **Model-role -> stage mapping** - the roadmap/AI_MODELS.md role table
+   doesn't say which role owns "series bible", "characters", "season plan" or
+   "episode outlines" specifically. This implementation assigns all of them
+   to `story_architect` (series/season structure, per its stated
    responsibility), reserves `episode_writer` for episode script prose only,
    and reuses `story_architect` for MERGE-decision concept synthesis (no
    dedicated "concept merger" role exists in the docs).
