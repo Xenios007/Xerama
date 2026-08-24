@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-036 (Lip Sync)._
+_Last updated: 2026-08-25 - MODULE-037/038 (Music Engine, Sound Effects)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -78,7 +78,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 306 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 344 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -798,6 +798,50 @@ points, so this is judged already-adequate rather than a gap).
   rejection, non-visible-speaker rejection, permissive-without-blocking-
   data) plus an extended end-to-end API test chaining video -> audio ->
   lip-sync generation.
+
+### MODULE-037 / MODULE-038 - Music Engine, Sound Effects
+
+- **`RightsMetadata`** (`domain/rights.py`) - shared by both cue types
+  (source, license_type, rights_owner, license_reference); `is_known`
+  (non-empty and not `"unknown"` `license_type`) is the single gate both
+  services check before approving a cue - "prevent unlicensed/unknown
+  provenance assets from publish-ready state" enforced identically for
+  music and SFX rather than two divergent implementations.
+- **`MusicCue`**/**`SoundEffectCue`** (`domain/music.py`,
+  `domain/sound_effect.py`) - planning metadata (purpose/mood/timing/
+  ducking for music; description/timing/gain for SFX) plus an `asset_id`
+  pointer once one is selected. Cues carry no audio bytes themselves -
+  "expose normalized audio to editor" is satisfied structurally by
+  pointing at an already-normalized `Asset` (Module 04), no new
+  normalization step needed.
+- **`MusicCueService`/`SoundEffectCueService`** - `create_cue` (draft) ->
+  `link_asset` ("library asset selection first" - a generation provider is
+  explicitly optional per the module spec and isn't wired up here) ->
+  `approve_cue`, which raises `CueNotReadyError` if no asset is linked or
+  `PermissionError` if `rights.is_known` is `False`. Re-linking a
+  different asset resets an approved cue back to `draft` - approval never
+  silently survives a changed source.
+- **`pipeline/sfx_derivation.py:derive_sfx_candidates`** - deterministic
+  keyword-based SFX candidate extraction from a shot's micro-beats
+  (preferred - real timing) and free-text `action` (fallback - a short
+  default window), capped at `MAX_SFX_CANDIDATES_PER_SHOT = 2` per shot -
+  "avoid overfilling scenes with unnecessary effects." No LLM call.
+  `SoundEffectCueService.derive_candidates_for_shot` persists the results
+  as draft cues ready for a human to link an asset to.
+- **API** - `POST/GET /episodes/{id}/music-cues`, `GET /music-cues/{id}`,
+  `POST /music-cues/{id}/link-asset|/approve`, `DELETE /music-cues/{id}`;
+  the same shape for `/sound-effect-cues`, plus
+  `POST /episodes/{id}/scenes/{n}/shots/{n}/sound-effect-cues/derive`.
+  `approve` returns 409 for `CueNotReadyError`/`PermissionError` (cue
+  exists but isn't ready), 404 for a genuinely unknown cue.
+- **Migration** - `alembic/versions/55a6461be3fa_add_music_and_sound_effect_cues.py`
+  (`music_cues`, `sound_effect_cues`).
+- Acceptance criterion met: episodes have auditable music cues ready for
+  deterministic mixing, and SFX are structured timeline inputs rather than
+  manual post-production notes - verified by 38 new tests (rights/domain,
+  SFX-derivation keyword/timing/cap behavior, both repositories, both
+  services' approve-gating/re-link-resets-approval, and end-to-end API
+  coverage for both cue types).
 
 ## Partially implemented
 

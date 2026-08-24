@@ -4,6 +4,27 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-037 / MODULE-038 - Music Engine, Sound Effects)
+
+- `RightsMetadata`: shared license/source/rights-owner model for both cue
+  types; `is_known` gates cue approval.
+- `MusicCue`/`SoundEffectCue`: planning metadata + an asset pointer, no
+  audio bytes of their own.
+- `MusicCueService`/`SoundEffectCueService`: create (draft) -> link a
+  library asset -> approve, refusing approval without a linked asset
+  (`CueNotReadyError`) or with unknown/unlicensed rights
+  (`PermissionError`). Re-linking a different asset resets an approved
+  cue to `draft`.
+- `pipeline/sfx_derivation.py`: deterministic keyword-based SFX candidate
+  extraction from micro-beats/action text, capped at 2 per shot.
+- New API: `POST/GET /episodes/{id}/music-cues`, `GET /music-cues/{id}`,
+  `POST /music-cues/{id}/link-asset|/approve`, `DELETE /music-cues/{id}`;
+  same shape for `/sound-effect-cues` plus
+  `POST /episodes/{id}/scenes/{n}/shots/{n}/sound-effect-cues/derive`.
+- Migration for `music_cues`/`sound_effect_cues`.
+- 38 new tests (rights/domain, SFX-derivation, both repositories, both
+  services, end-to-end API coverage).
+
 ### Added (MODULE-036 - Lip Sync)
 
 - `VideoProductionService.generate_lip_synced_take`: reuses the existing
