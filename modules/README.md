@@ -1,32 +1,41 @@
-# Xerama Implementation Modules
+# Xerama Architecture Module Queue — MODULE-001 to MODULE-080
 
-These files are executable implementation briefs for Codex/Claude Code. Run them in numeric order unless a module explicitly says it may run in parallel.
+_Last architecture freeze: 2026-08-25._
 
-## Audit baseline — 2026-08-25
+## Authority
+This file is the authoritative continuous implementation queue for Claude Code/Codex. The older numbered files `01_*.md` through `14_*.md` are **legacy planning briefs** retained for research/history; they do not define completion order anymore. MODULE-001..080 supersede them.
 
-Already substantially implemented: project/backend skeleton, SQLite/Alembic persistence, domain contracts, OpenRouter LLM provider, dual concept generation, judge/merge, Series Bible, character text layer, episode outlines, Episode 1 script, shot plan, deterministic retention/continuity validation, canon commit, FastAPI/CLI, persistent stage jobs, and tests.
+## Execution rule
+Start at the first module whose acceptance criteria are not fully implemented and verified. `AUDIT/EXTEND` means substantial code may already exist: inspect and reuse it, fill gaps, test, update status, commit and push. `BUILD` means the capability was missing or incomplete at architecture freeze. Do not reimplement working functionality merely to match filenames.
 
-Partially implemented: character identity, provider health/fallback, persistent jobs.
+For every module: read dependencies and relevant ADR/docs/research; inspect current code; implement missing requirements; add migrations/contracts/tests as needed; run targeted then full tests; run configured lint/type/format/build checks; update `docs/IMPLEMENTATION_STATUS.md` and `CHANGELOG.md`; review diff; commit and push; immediately continue.
 
-Missing for finished production: season/reveal planning, full multi-episode generation, production-grade Director/prompt compiler, asset/storage layer, character casting studio, Style Bible/storyboard/image production, media-provider registry, video generation, audio/lipsync, background worker scheduler, multimodal QC/retakes, FFmpeg editor/export, frontend studio, cost/telemetry/analytics, and production hardening.
+Missing optional credentials are not a blocker: implement contracts, fake providers and non-live tests, mark only live verification pending, then continue. Stop only for completion, genuine unrecoverable dependency with no safe later work, or risk of destructive data/repository damage.
 
-## Execution order
+## Source priority
+1. `docs/DECISIONS.md`
+2. `docs/ARCHITECTURE.md`
+3. current `MODULE-xxx_*.md`
+4. `docs/DATA_MODEL.md` / `docs/JSON_CONTRACTS.md`
+5. `docs/IMPLEMENTATION_STATUS.md`
+6. current code/tests
+7. `research/`
 
-1. `01_SEASON_REVEAL_ENGINE.md`
-2. `02_MULTI_EPISODE_ENGINE.md`
-3. `03_DIRECTOR_PROMPT_COMPILER.md`
-4. `04_ASSET_STORAGE.md`
-5. `05_CHARACTER_CASTING_STUDIO.md`
-6. `06_STYLE_STORYBOARD_IMAGE.md`
-7. `07_MEDIA_PROVIDER_ROUTER.md`
-8. `08_VIDEO_PRODUCTION.md`
-9. `09_AUDIO_PRODUCTION.md`
-10. `10_JOB_WORKER_SCHEDULER.md`
-11. `11_MULTIMODAL_QC_RETAKES.md`
-12. `12_EDITOR_EXPORT.md`
-13. `13_FRONTEND_STUDIO.md`
-14. `14_COST_ANALYTICS_HARDENING.md`
+If reality disproves a lower-priority document, update documentation instead of silently diverging.
 
-## Agent rule
+## Queue
 
-For every module: read repository docs and current code first; do not duplicate existing implementations; preserve provider independence; use migrations for schema changes; add tests; run the full test suite; update `docs/IMPLEMENTATION_STATUS.md` and `CHANGELOG.md`; make logical commits; continue until the module acceptance criteria pass. Do not wait for perfect provider choices—use interfaces/fakes where credentials or paid providers are unavailable.
+### Foundation & story — 001–020
+001 Core Platform Architecture; 002 Configuration & Environment; 003 Domain Contract System; 004 Database & Persistence; 005 Repository Architecture; 006 AI Gateway; 007 Model Registry & Routing; 008 Provider Health/Fallback; 009 Creative Brief Engine; 010 Concept Generation; 011 AI Judge & Merge; 012 Series Bible; 013 Character Engine; 014 Canon & Memory; 015 Season Architecture; 016 Reveal/Mystery Engine; 017 Episode Planning; 018 Script Generation; 019 Continuity Engine; 020 Story Quality Engine.
+
+### Directing & media — 021–040
+021 Director Engine; 022 Scene Blocking; 023 Shot Planning; 024 Prompt Compiler; 025 Style Bible; 026 Character Visual Identity; 027 Reference Asset System; 028 Storyboard Engine; 029 Image Generation; 030 Image Editing/Regeneration; 031 Media Provider Router; 032 Video Generation; 033 Character Motion/Performance; 034 Voice Generation; 035 Dialogue/Audio Pipeline; 036 Lip Sync; 037 Music Engine; 038 Sound Effects; 039 Subtitle Engine; 040 Media Asset Storage.
+
+### Production platform & UI — 041–060
+041 Job Queue; 042 Worker Architecture; 043 Retry/Recovery; 044 Multimodal QC; 045 Automatic Retakes; 046 FFmpeg Assembly; 047 Episode Versioning; 048 Vertical Export; 049 Production Cost Engine; 050 Production Observability; 051 Project API; 052 Generation API; 053 Asset API; 054 Job/Progress API; 055 Frontend Architecture; 056 Project Dashboard; 057 Story Studio; 058 Character Studio; 059 Production Studio; 060 Review/Approval Studio.
+
+### Learning, security, release — 061–080
+061 Analytics Ingestion; 062 Retention Analytics; 063 Story Performance Learning; 064 Recommendation/Optimization; 065 Human Feedback; 066 Security; 067 Authentication/Authorization; 068 Rate Limits/Abuse Protection; 069 Deployment Architecture; 070 Production Hardening; 071 Testing Architecture; 072 AI Evaluation Framework; 073 Media Evaluation Framework; 074 Integration Testing; 075 End-to-End Production Testing; 076 Failure Simulation; 077 Backup/Recovery; 078 Migration Strategy; 079 Documentation/Developer Experience; 080 Release & Operations.
+
+## Completion definition
+The architecture queue is complete only when all 80 module requirements and acceptance criteria are represented in working code/tests/docs, the full regression suite and configured static/build checks pass, application/worker/frontend start correctly, the fake-provider E2E production succeeds, migrations verify, no module-related unfinished placeholders remain, final status docs are truthful, and all completed work is committed and pushed.
