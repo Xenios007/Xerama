@@ -230,6 +230,7 @@ class Episode(Base):
     cliffhanger: Mapped[str] = mapped_column(Text, default="")
     duration_target_seconds: Mapped[int] = mapped_column(Integer, default=75)
     status: Mapped[str] = mapped_column(String(32), default="outlined")
+    version: Mapped[int] = mapped_column(Integer, default=1)
     outline: Mapped[dict] = mapped_column(JSON, default=dict)
     script: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)

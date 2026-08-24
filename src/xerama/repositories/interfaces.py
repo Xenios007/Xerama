@@ -47,6 +47,7 @@ class EpisodeRecord(BaseModel):
     series_id: str
     episode_number: int
     status: str
+    version: int = 1
     outline: EpisodeOutline
     script: EpisodeScript | None = None
 
@@ -152,9 +153,29 @@ class EpisodeRepository(Protocol):
 
     async def save_canon_event(self, episode_id: str, event: CanonEvent) -> None: ...
 
+    async def invalidate_canon_events(self, episode_id: str) -> None:
+        """Soft-retires this episode's previously committed canon events
+        (sets `committed=False`) without deleting them - called before a
+        regeneration re-commits fresh events, so `list_canon_events` never
+        double-counts a superseded take. See ADR-019 / Module 02
+        "regeneration without corrupting later canon"."""
+        ...
+
+    async def list_canon_events(
+        self, series_id: str, before_episode: int | None = None
+    ) -> list[CanonEvent]:
+        """Committed canon events for a series, optionally only those from
+        episodes strictly before `before_episode` - the bounded context a
+        later episode's generation is allowed to see."""
+        ...
+
+    async def set_status(self, episode_id: str, status: str) -> None: ...
+
     async def list_by_series(self, series_id: str) -> list[EpisodeRecord]: ...
 
     async def get(self, episode_id: str) -> EpisodeRecord | None: ...
+
+    async def get_by_number(self, series_id: str, episode_number: int) -> EpisodeRecord | None: ...
 
 
 class JobRepository(Protocol):

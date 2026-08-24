@@ -153,6 +153,18 @@ class ArcStage(str, Enum):
     RESOLUTION = "resolution"
 
 
+class EpisodeGenerationStatus(str, Enum):
+    """Per-episode generation progress. See modules/02_MULTI_EPISODE_ENGINE.md
+    "Persist generation status per episode"."""
+
+    OUTLINED = "outlined"
+    SCRIPTED = "scripted"
+    SHOT_PLANNED = "shot_planned"
+    QC_BLOCKED = "qc_blocked"
+    CANON_COMMITTED = "canon_committed"
+    STALE = "stale"
+
+
 class CanonChangeType(str, Enum):
     """See docs/DATA_MODEL.md (Episode State Change)."""
 

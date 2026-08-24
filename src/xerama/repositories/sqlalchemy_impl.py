@@ -384,6 +384,7 @@ def _episode_record(row: m.Episode) -> EpisodeRecord:
         series_id=row.series_id,
         episode_number=row.episode_number,
         status=row.status,
+        version=row.version,
         outline=EpisodeOutline.model_validate(row.outline),
         script=EpisodeScript.model_validate(row.script) if row.script else None,
     )
@@ -421,6 +422,12 @@ class SQLAlchemyEpisodeRepository:
         row = await self._session.get(m.Episode, episode_id)
         if row is None:
             raise ValueError(f"episode {episode_id} not found")
+        # A second save_script call for the same episode is a regeneration -
+        # bump the lightweight version counter (Module 02 "idempotent/
+        # versioned reruns"). Full script history is not kept; QualityReport
+        # rows already preserve the per-attempt audit trail (ADR-019).
+        if row.script is not None:
+            row.version += 1
         row.script = script.model_dump(mode="json")
         row.status = "scripted"
         await self._session.flush()
@@ -533,6 +540,44 @@ class SQLAlchemyEpisodeRepository:
         self._session.add(row)
         await self._session.flush()
 
+    async def invalidate_canon_events(self, episode_id: str) -> None:
+        rows = await self._session.execute(
+            select(m.EpisodeStateChange).where(m.EpisodeStateChange.episode_id == episode_id)
+        )
+        for row in rows.scalars():
+            row.committed = False
+        await self._session.flush()
+
+    async def list_canon_events(
+        self, series_id: str, before_episode: int | None = None
+    ) -> list[CanonEvent]:
+        query = (
+            select(m.EpisodeStateChange, m.Episode.episode_number)
+            .join(m.Episode, m.EpisodeStateChange.episode_id == m.Episode.id)
+            .where(m.Episode.series_id == series_id, m.EpisodeStateChange.committed == True)  # noqa: E712
+        )
+        if before_episode is not None:
+            query = query.where(m.Episode.episode_number < before_episode)
+        query = query.order_by(m.Episode.episode_number)
+        rows = await self._session.execute(query)
+        return [
+            CanonEvent(
+                change_type=change.change_type,
+                episode_number=episode_number,
+                description=change.description,
+                payload=change.payload,
+                committed=change.committed,
+            )
+            for change, episode_number in rows.all()
+        ]
+
+    async def set_status(self, episode_id: str, status: str) -> None:
+        row = await self._session.get(m.Episode, episode_id)
+        if row is None:
+            raise ValueError(f"episode {episode_id} not found")
+        row.status = status
+        await self._session.flush()
+
     async def list_by_series(self, series_id: str) -> list[EpisodeRecord]:
         rows = await self._session.execute(
             select(m.Episode).where(m.Episode.series_id == series_id).order_by(m.Episode.episode_number)
@@ -544,6 +589,15 @@ class SQLAlchemyEpisodeRepository:
         if row is None:
             return None
         return _episode_record(row)
+
+    async def get_by_number(self, series_id: str, episode_number: int) -> EpisodeRecord | None:
+        result = await self._session.execute(
+            select(m.Episode).where(
+                m.Episode.series_id == series_id, m.Episode.episode_number == episode_number
+            )
+        )
+        row = result.scalar_one_or_none()
+        return _episode_record(row) if row is not None else None
 
 
 class SQLAlchemyJobRepository:
