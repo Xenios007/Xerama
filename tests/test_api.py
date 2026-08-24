@@ -41,6 +41,7 @@ async def client(tmp_path):
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        ac.fake_provider = provider  # exposed for tests that need to queue more responses
         yield ac
 
     await engine.dispose()
@@ -110,6 +111,43 @@ async def test_generate_series_end_to_end(client: httpx.AsyncClient) -> None:
 
     current_after_approve = await client.get(f"/series/{series_id}/season-plan")
     assert current_after_approve.json()["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_episode_engine_generate_next_and_regenerate(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    series_id = generated.json()["series_id"]
+
+    client.fake_provider.queue(json.dumps(fx.script()))
+    client.fake_provider.queue(json.dumps(fx.shot_plan()))
+    response = await client.post(
+        f"/series/{series_id}/episodes/generate-next", params={"project_id": project_id}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["episode_number"] == 2
+    assert body["canon_committed"] is True
+
+    episodes_response = await client.get(f"/series/{series_id}/episodes")
+    statuses = {e["episode_number"]: e["status"] for e in episodes_response.json()}
+    assert statuses[1] == "canon_committed"
+    assert statuses[2] == "canon_committed"
+    assert statuses[3] == "outlined"
+
+
+@pytest.mark.asyncio
+async def test_episode_engine_409_for_unknown_series(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    response = await client.post(
+        "/series/does-not-exist/episodes/1/generate", params={"project_id": project_id}
+    )
+    assert response.status_code == 409
 
 
 @pytest.mark.asyncio
