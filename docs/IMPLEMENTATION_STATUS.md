@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-033 (Character Motion / Performance)._
+_Last updated: 2026-08-25 - MODULE-034/035 (Voice Generation, Dialogue/Audio Pipeline)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -78,7 +78,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 278 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 302 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -706,6 +706,63 @@ points, so this is judged already-adequate rather than a gap).
   inverted-range/BLOCK-same-character-overlap/PASS-different-character-
   overlap/WARN-overloaded-density) plus the full existing suite staying
   green.
+
+### MODULE-034 / MODULE-035 - Voice Generation, Dialogue / Audio Pipeline
+
+- **`VoiceProfile`** (`domain/voice.py`) - one row per character (mirrors
+  `StyleBible`'s one-per-owner pattern): `provider`/`provider_voice_id`,
+  `language`, `style`, `pronunciation_dictionary`, and `provenance` -
+  **reuses `CharacterProvenance` from Module 05 directly** rather than
+  duplicating an almost-identical rights/consent model, so "never assume
+  cloning rights; provenance is required for external likeness/voice" is
+  enforced by the exact same Pydantic validator that already blocks an
+  unlicensed `identity_type=licensed_authorized` face. `locked`/`version`
+  follow the same lock/recast pattern as `StyleBibleService`/
+  `CharacterCastingService` - `VoiceProfileService.update` raises
+  `PermissionError` while locked.
+- **`ShotAudioProduction`** (`domain/audio_production.py`) - the same
+  lightweight per-shot workflow record pattern as `Storyboard`/
+  `ShotVideoProduction`, with `audio_mode` (native/tts_lipsync/hybrid,
+  Module 03's existing `Shot.audio_mode`) copied in at creation.
+  Individual dialogue takes are plain `Asset` rows (`type=audio`,
+  `take_number`) - no duplicated entity.
+- **`AudioProductionService.generate_dialogue_take`** - resolves the
+  character's `VoiceProfile`, routes through
+  `MediaProviderRouter[VoiceProvider]` (capability filter: profile
+  language must be in the provider's `languages`, text length within
+  `max_characters` - Module 07's router, reused as-is), and ingests a
+  take-numbered `Asset` with `generation_params` recording
+  `character_id`/`language`/`audio_mode`/routing attempts. For `native`
+  mode the dialogue audio is the video provider's own output track and
+  this service is intentionally not invoked; `hybrid` means this
+  controlled dialogue layer is later mixed with native ambience by the
+  deterministic editor (Module 12/MODULE-046), not here.
+  `upload_dialogue_take`/`accept_take`/`reject_take`/`list_takes` mirror
+  every other production service in this codebase.
+- **API** - `GET/PATCH /characters/{id}/voice-profile`,
+  `POST .../lock|/unlock`;
+  `POST /episodes/{id}/scenes/{n}/shots/{n}/audio-production` (idempotent;
+  `audio_mode` read from the approved shot plan, not client-supplied),
+  `GET /episodes/{id}/audio-productions`, `GET /audio-productions/{id}`,
+  `POST /audio-productions/{id}/takes/generate` (`character_id` + optional
+  `text` - defaults to the shot's own scripted `dialogue`),
+  `POST .../takes/upload`, `GET .../takes`,
+  `POST .../takes/{asset_id}/accept|reject`.
+- **Migration** - `alembic/versions/d3f28dc36975_add_voice_profiles_and_shot_audio_.py`
+  (`voice_profiles`, `shot_audio_productions`).
+- Acceptance criterion met: dialogue audio can be regenerated
+  independently of video while retaining character voice identity (a
+  `VoiceProfile` persists across takes and episodes; `generate_dialogue_take`
+  never touches video/keyframe assets) - verified by 21 new tests (voice
+  profile domain/repository/service lock-immutability, audio production
+  repository CRUD, service take-numbering/capability-rejection
+  (language/length)/accept-reject-retry, and end-to-end API coverage).
+- **MODULE-040 (Media Asset Storage) audit** - already fully satisfied by
+  Module 04's `StorageProvider`/`LocalStorageProvider` + `Asset`/
+  `AssetService` (content hash, MIME/size/path, full lineage via
+  `AssetProvenance`, project/series/episode/character/scene/shot
+  ownership, take/version numbering, accept/reject status). No changes
+  needed.
 
 ## Partially implemented
 

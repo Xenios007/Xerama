@@ -4,6 +4,35 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-034 / MODULE-035 - Voice Generation, Dialogue/Audio Pipeline)
+
+- `VoiceProfile`: one per character, reuses Module 05's
+  `CharacterProvenance` directly for rights/consent (a licensed voice
+  requires `consent_reference`, same validator as a licensed face).
+  Lock/recast pattern matches `StyleBibleService`.
+- `ShotAudioProduction`: per-shot workflow record with `audio_mode`
+  (native/tts_lipsync/hybrid) copied from the shot plan; takes are plain
+  `Asset` rows.
+- `AudioProductionService.generate_dialogue_take`: routes through
+  `MediaProviderRouter[VoiceProvider]` (language/max-characters
+  capability filter), ingests a take-numbered audio `Asset` with full
+  lineage. `upload_dialogue_take`/`accept_take`/`reject_take`/
+  `list_takes` mirror the rest of the codebase's production services.
+- New API: `GET/PATCH /characters/{id}/voice-profile[/lock|/unlock]`,
+  `POST /episodes/{id}/scenes/{n}/shots/{n}/audio-production`,
+  `GET /episodes/{id}/audio-productions`, `GET /audio-productions/{id}`,
+  `POST /audio-productions/{id}/takes/generate|upload`,
+  `GET /audio-productions/{id}/takes`,
+  `POST /audio-productions/{id}/takes/{asset_id}/accept|reject`.
+- Migration for `voice_profiles`/`shot_audio_productions`.
+- 21 new tests (voice profile domain/repository/service, audio
+  production repository/service/API coverage).
+
+### Audited (MODULE-040 - Media Asset Storage)
+
+- Already fully satisfied by Module 04's `StorageProvider`/`AssetService`
+  - no changes needed.
+
 ### Added (MODULE-033 - Character Motion / Performance)
 
 - `MicroBeat` gained `character_id`/`pose`/`expression`/`gaze`/
