@@ -846,3 +846,46 @@ async def test_sound_effect_cue_derive_link_approve_flow(client: httpx.AsyncClie
 async def test_sound_effect_cue_not_found_404s(client: httpx.AsyncClient) -> None:
     assert (await client.get("/sound-effect-cues/does-not-exist")).status_code == 404
     assert (await client.post("/sound-effect-cues/does-not-exist/approve")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_subtitle_generate_list_export_validate_flow(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    generated_subs = await client.post(f"/episodes/{episode1_id}/subtitles/generate")
+    assert generated_subs.status_code == 200, generated_subs.text
+    cues = generated_subs.json()
+    assert len(cues) == 1
+    assert cues[0]["text"] == "This can't be real."
+
+    listed = await client.get(f"/episodes/{episode1_id}/subtitles")
+    assert len(listed.json()) == 1
+
+    srt = await client.get(f"/episodes/{episode1_id}/subtitles/export.srt")
+    assert srt.status_code == 200
+    assert "This can't be real." in srt.text
+    assert "-->" in srt.text
+
+    validated = await client.get(f"/episodes/{episode1_id}/subtitles/validate")
+    assert validated.status_code == 200
+    assert validated.json()["status"] == "pass"
+
+    # Regenerating replaces rather than accumulates.
+    regenerated = await client.post(f"/episodes/{episode1_id}/subtitles/generate")
+    assert len(regenerated.json()) == 1
+    still_listed = await client.get(f"/episodes/{episode1_id}/subtitles")
+    assert len(still_listed.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_subtitle_generate_requires_shot_plan(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    response = await client.post(f"/episodes/{project_id}/subtitles/generate")
+    assert response.status_code == 409
