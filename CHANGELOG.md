@@ -4,6 +4,27 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-030 - Image Editing / Regeneration)
+
+- `ImageEditRequest` + `ImageProvider.edit` (provider-supported edit/mask
+  path), routed only to providers whose `capabilities.supports_edit`
+  (and `supports_mask` when a mask is given) is `True`.
+  `FakeImageProvider.edit` added.
+- `StoryboardService.edit_keyframe`: always produces a new take
+  referencing the base asset (and mask, if any) in its lineage - the
+  base take's row is never modified. "Strengthen references / change
+  provider" needs no new mechanism - already composes from
+  `ConsistencyPolicy` and the router's existing fallback.
+- New API: `POST /storyboards/{id}/keyframes/edit`.
+- 10 new tests (fake-provider edit behavior, service lineage/base-
+  untouched/capability-rejection, API edit flow + rejection).
+
+### Audited (MODULE-029 - Image Generation)
+
+- Already fully satisfied by Module 06/07's `ImageProvider` +
+  `StoryboardService.generate_keyframe` - no changes needed. QC-before-
+  accept is correctly deferred to MODULE-044 (not a MODULE-029 dependency).
+
 ### Added (MODULE-022 - Scene Blocking)
 
 - `CharacterBlock`/`MovementBeat`/`SceneBlocking` domain contracts

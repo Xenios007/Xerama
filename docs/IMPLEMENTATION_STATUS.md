@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-022 (Scene Blocking)._
+_Last updated: 2026-08-25 - MODULE-029/030 (Image Generation, Image Editing/Regeneration)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -78,7 +78,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 259 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 269 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -629,6 +629,51 @@ points, so this is judged already-adequate rather than a gap).
   full 3D engine - verified by 9 new tests (domain defaults/JSON round-
   trip, all three validator outcomes, repository round-trip) plus the
   full existing suite staying green.
+
+### MODULE-029 audit / MODULE-030 - Image Generation, Image Editing & Regeneration
+
+- **MODULE-029 (Image Generation) audit** - already fully satisfied by
+  Module 06/07's `ImageProvider` contract + `FakeImageProvider` +
+  `StoryboardService.generate_keyframe` (reference images, aspect ratio,
+  per-take provider/prompt lineage via `AssetProvenance`, immediate
+  persistence, retry/rejection). "Run image QC before marking accepted"
+  is correctly out of scope here - MODULE-029 doesn't depend on
+  MODULE-044 (Multimodal QC, not yet built); QC gating arrives with that
+  module, same deferral already used for identity QC (Module 05).
+- **`ImageEditRequest` + `ImageProvider.edit`** (`providers/image.py`) -
+  provider-supported edit/mask path, only ever routed to a provider whose
+  `capabilities.supports_edit` is `True` (and `supports_mask` when a mask
+  is supplied) - the `MediaProviderRouter`'s capability filter keeps
+  incompatible providers out of the pool before `.edit()` is called, same
+  pattern as every other capability-gated call in this codebase.
+  `FakeImageProvider.edit` added (default capabilities still have
+  `supports_edit=False`, matching "not every provider supports this").
+- **`StoryboardService.edit_keyframe`** - resolves the base take (and
+  optional mask) to bytes, routes through `MediaProviderRouter`, and
+  always ingests the result as a **new** take (`take_number` incremented,
+  `source_reference_asset_ids=[base_asset_id, mask_asset_id?]`,
+  `generation_params={"edit": True, "based_on_take": ...}`) - the base
+  take's row is never touched, so "never overwrite accepted assets
+  silently" holds structurally, not just by convention. "Strengthen
+  references or change provider based on QC recommendation" needs no new
+  mechanism: the caller can already pass a different/larger reference set
+  into `generate_keyframe` (Module 05's `ConsistencyPolicy` already
+  selects references) or let the router's existing fallback try another
+  provider - both compose from what already exists.
+- **API** - `POST /storyboards/{id}/keyframes/edit` (body: `instruction`,
+  `base_asset_id`, optional `mask_asset_id`/`negative_prompt`/
+  `aspect_ratio`). 422 on `NoEligibleProviderError`, 404 if
+  `base_asset_id`/`mask_asset_id` don't resolve to a real asset row, 410
+  if the row exists but its backing file is missing.
+- No migration needed - edits reuse the existing `Asset`/take-numbering
+  machinery from Module 04, nothing new to persist.
+- Acceptance criterion met: a failed still can be repaired via a targeted
+  edit (or, as before, a full regenerate via another `generate_keyframe`
+  call) without touching any other shot's assets, with an auditable
+  before/after lineage - verified by 10 new tests (fake-provider edit
+  round trip/mask tracking/default capabilities, service edit lineage/
+  base-take-untouched/capability-and-mask rejection, end-to-end API edit
+  flow and unsupported-provider rejection).
 
 ## Partially implemented
 
