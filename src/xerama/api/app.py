@@ -15,8 +15,10 @@ from xerama.api.routers import (
     episodes,
     generation,
     inspect,
+    music_cues,
     projects,
     season,
+    sound_effect_cues,
     storyboards,
     style_bible,
     video_production,
@@ -112,6 +114,8 @@ def create_app() -> FastAPI:
     app.include_router(video_production.router)
     app.include_router(voice_profile.router)
     app.include_router(audio_production.router)
+    app.include_router(music_cues.router)
+    app.include_router(sound_effect_cues.router)
     return app
 
 
