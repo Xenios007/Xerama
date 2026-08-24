@@ -13,6 +13,7 @@ from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_image import FakeImageProvider
 from xerama.providers.fake_video import FakeVideoProvider
 from xerama.providers.health import ProviderHealthTracker
+from xerama.providers.image import ImageProviderCapabilities
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.services.media_router import MediaProviderRouter
 
@@ -44,7 +45,9 @@ async def client(tmp_path):
     app.state.session_factory = session_factory
     app.state.ai_gateway = gateway
     app.state.storage_provider = LocalStorageProvider(tmp_path / "storage")
-    image_provider = FakeImageProvider()
+    image_provider = FakeImageProvider(
+        capabilities=ImageProviderCapabilities(supports_edit=True, supports_mask=True)
+    )
     app.state.image_router = MediaProviderRouter([image_provider])
     video_provider = FakeVideoProvider()
     app.state.video_router = MediaProviderRouter([video_provider])
@@ -439,6 +442,73 @@ async def test_storyboard_keyframe_reject_and_manual_upload_retry(client: httpx.
     assert retry_upload.status_code == 200, retry_upload.text
     assert retry_upload.json()["take_number"] == 2
     assert retry_upload.json()["provenance"]["provider"] == "manual_upload"
+
+
+@pytest.mark.asyncio
+async def test_storyboard_keyframe_edit_flow(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+    storyboard_id = (
+        await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/storyboard")
+    ).json()["id"]
+
+    base = (
+        await client.post(
+            f"/storyboards/{storyboard_id}/keyframes/upload",
+            files={"file": ("base.png", b"original bytes", "image/png")},
+        )
+    ).json()
+    accepted = await client.post(f"/storyboards/{storyboard_id}/keyframes/{base['id']}/accept")
+    assert accepted.status_code == 200
+
+    client.fake_image_provider.queue(b"edited bytes")
+    edited = await client.post(
+        f"/storyboards/{storyboard_id}/keyframes/edit",
+        json={"instruction": "fix the left hand", "base_asset_id": base["id"]},
+    )
+    assert edited.status_code == 200, edited.text
+    edited_asset = edited.json()
+    assert edited_asset["take_number"] == 2
+    assert edited_asset["provenance"]["generation_params"]["edit"] is True
+    assert edited_asset["provenance"]["generation_params"]["based_on_take"] == base["id"]
+
+    # The accepted base take is untouched.
+    still_approved = await client.get(f"/storyboards/{storyboard_id}")
+    assert still_approved.json()["approved_keyframe_asset_id"] == base["id"]
+    base_download = await client.get(f"/assets/{base['id']}/download")
+    assert base_download.content == b"original bytes"
+
+
+@pytest.mark.asyncio
+async def test_storyboard_keyframe_edit_rejects_unsupported_provider(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+    storyboard_id = (
+        await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/storyboard")
+    ).json()["id"]
+    base = (
+        await client.post(
+            f"/storyboards/{storyboard_id}/keyframes/upload",
+            files={"file": ("base.png", b"original bytes", "image/png")},
+        )
+    ).json()
+
+    client.fake_image_provider.capabilities.supports_edit = False
+    response = await client.post(
+        f"/storyboards/{storyboard_id}/keyframes/edit",
+        json={"instruction": "fix it", "base_asset_id": base["id"]},
+    )
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

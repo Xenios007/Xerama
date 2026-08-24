@@ -172,3 +172,90 @@ async def test_list_keyframes_returns_lineage_in_order(session, storage) -> None
 
     keyframes = await service.list_keyframes("PROJ_1", storyboard)
     assert [k.take_number for k in keyframes] == [1, 2]
+
+
+async def test_edit_keyframe_produces_new_take_referencing_base(session, storage) -> None:
+    episode_id = await _episode(session)
+    service = _service(session, storage)
+    storyboard = await service.get_or_create_storyboard(episode_id, 1, 1)
+    await session.commit()
+
+    base = await service.upload_keyframe(storyboard.id, "PROJ_1", b"original take")
+    await session.commit()
+    await service.accept_keyframe(storyboard.id, base.id)
+    await session.commit()
+
+    provider = FakeImageProvider(
+        [b"edited take"], capabilities=ImageProviderCapabilities(supports_edit=True)
+    )
+    router = MediaProviderRouter([provider])
+    edited = await service.edit_keyframe(storyboard.id, "PROJ_1", "fix the left hand", base.id, router)
+    await session.commit()
+
+    assert edited.take_number == 2
+    assert edited.provenance.generation_params["edit"] is True
+    assert edited.provenance.generation_params["based_on_take"] == base.id
+    assert edited.provenance.source_reference_asset_ids == [base.id]
+    assert await storage.read_bytes(edited.storage_path) == b"edited take"
+
+    # The base take is untouched - never silently overwritten.
+    still_base = await service.get(storyboard.id)
+    assert still_base.approved_keyframe_asset_id == base.id
+    assert await storage.read_bytes(base.storage_path) == b"original take"
+
+
+async def test_edit_keyframe_includes_mask_in_lineage(session, storage) -> None:
+    episode_id = await _episode(session)
+    service = _service(session, storage)
+    storyboard = await service.get_or_create_storyboard(episode_id, 1, 1)
+    await session.commit()
+    base = await service.upload_keyframe(storyboard.id, "PROJ_1", b"base")
+    mask = await service.upload_keyframe(storyboard.id, "PROJ_1", b"mask bytes")
+    await session.commit()
+
+    provider = FakeImageProvider(
+        [b"masked edit"],
+        capabilities=ImageProviderCapabilities(supports_edit=True, supports_mask=True),
+    )
+    router = MediaProviderRouter([provider])
+    edited = await service.edit_keyframe(
+        storyboard.id, "PROJ_1", "change wardrobe", base.id, router, mask_asset_id=mask.id
+    )
+    await session.commit()
+
+    assert edited.provenance.source_reference_asset_ids == [base.id, mask.id]
+    assert provider.edit_calls[0][1] is True  # mask was passed through
+
+
+async def test_edit_keyframe_rejects_provider_without_edit_support(session, storage) -> None:
+    episode_id = await _episode(session)
+    service = _service(session, storage)
+    storyboard = await service.get_or_create_storyboard(episode_id, 1, 1)
+    await session.commit()
+    base = await service.upload_keyframe(storyboard.id, "PROJ_1", b"base")
+    await session.commit()
+
+    provider = FakeImageProvider(capabilities=ImageProviderCapabilities(supports_edit=False))
+    router = MediaProviderRouter([provider])
+    with pytest.raises(NoEligibleProviderError):
+        await service.edit_keyframe(storyboard.id, "PROJ_1", "fix it", base.id, router)
+    assert provider.edit_calls == []
+
+
+async def test_edit_keyframe_rejects_mask_when_provider_lacks_mask_support(session, storage) -> None:
+    episode_id = await _episode(session)
+    service = _service(session, storage)
+    storyboard = await service.get_or_create_storyboard(episode_id, 1, 1)
+    await session.commit()
+    base = await service.upload_keyframe(storyboard.id, "PROJ_1", b"base")
+    mask = await service.upload_keyframe(storyboard.id, "PROJ_1", b"mask")
+    await session.commit()
+
+    provider = FakeImageProvider(
+        capabilities=ImageProviderCapabilities(supports_edit=True, supports_mask=False)
+    )
+    router = MediaProviderRouter([provider])
+    with pytest.raises(NoEligibleProviderError):
+        await service.edit_keyframe(
+            storyboard.id, "PROJ_1", "fix it", base.id, router, mask_asset_id=mask.id
+        )
