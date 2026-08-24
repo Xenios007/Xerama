@@ -63,8 +63,13 @@ Thumbs.db
 
 # Local databases/logs
 *.log
+*.db
+*.db-journal
 db.sqlite3
 db.sqlite3-journal
+
+# Local asset storage (ADR-022 - local first, S3-compatible later)
+storage/
 
 # Local service state
 *.rdb
