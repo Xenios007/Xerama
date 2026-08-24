@@ -756,3 +756,93 @@ async def test_audio_production_not_found_404s(client: httpx.AsyncClient) -> Non
             "/audio-productions/does-not-exist/takes/generate", json={"character_id": "CHAR_001"}
         )
     ).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_music_cue_create_link_approve_flow(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    created_cue = await client.post(
+        f"/episodes/{episode1_id}/music-cues",
+        json={"purpose": "tension build", "mood": "dread", "start_seconds": 0.0, "end_seconds": 10.0},
+    )
+    assert created_cue.status_code == 200, created_cue.text
+    cue = created_cue.json()
+    assert cue["status"] == "draft"
+
+    listed = await client.get(f"/episodes/{episode1_id}/music-cues")
+    assert len(listed.json()) == 1
+
+    not_ready = await client.post(f"/music-cues/{cue['id']}/approve")
+    assert not_ready.status_code == 409
+
+    linked = await client.post(
+        f"/music-cues/{cue['id']}/link-asset",
+        json={"asset_id": "asset-1", "rights": {"license_type": "royalty_free"}},
+    )
+    assert linked.status_code == 200
+
+    approved = await client.post(f"/music-cues/{cue['id']}/approve")
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+
+    deleted = await client.delete(f"/music-cues/{cue['id']}")
+    assert deleted.status_code == 204
+    assert (await client.get(f"/music-cues/{cue['id']}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_music_cue_not_found_404s(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/music-cues/does-not-exist")).status_code == 404
+    assert (await client.post("/music-cues/does-not-exist/approve")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_sound_effect_cue_derive_link_approve_flow(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    derived = await client.post(
+        f"/episodes/{episode1_id}/scenes/1/shots/1/sound-effect-cues/derive"
+    )
+    assert derived.status_code == 200, derived.text
+    # The fixture shot's action ("Mara opens the letter") has no SFX keyword matches.
+    assert derived.json() == []
+
+    created_cue = await client.post(
+        f"/episodes/{episode1_id}/sound-effect-cues",
+        json={"scene_number": 1, "description": "paper rustle", "start_seconds": 0.0, "end_seconds": 0.5},
+    )
+    assert created_cue.status_code == 200, created_cue.text
+    cue = created_cue.json()
+
+    listed = await client.get(f"/episodes/{episode1_id}/sound-effect-cues")
+    assert len(listed.json()) == 1
+
+    not_ready = await client.post(f"/sound-effect-cues/{cue['id']}/approve")
+    assert not_ready.status_code == 409
+
+    await client.post(
+        f"/sound-effect-cues/{cue['id']}/link-asset",
+        json={"asset_id": "asset-1", "rights": {"license_type": "cc0"}},
+    )
+    approved = await client.post(f"/sound-effect-cues/{cue['id']}/approve")
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_sound_effect_cue_not_found_404s(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/sound-effect-cues/does-not-exist")).status_code == 404
+    assert (await client.post("/sound-effect-cues/does-not-exist/approve")).status_code == 404
