@@ -9,6 +9,7 @@ from xerama.config import ModelRoleRegistry, Settings
 from xerama.db.base import create_all, make_engine, make_session_factory
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.providers.fake import FakeLLMProvider
+from xerama.providers.fake_image import FakeImageProvider
 from xerama.providers.health import ProviderHealthTracker
 from xerama.providers.local_storage import LocalStorageProvider
 
@@ -40,10 +41,13 @@ async def client(tmp_path):
     app.state.session_factory = session_factory
     app.state.ai_gateway = gateway
     app.state.storage_provider = LocalStorageProvider(tmp_path / "storage")
+    image_provider = FakeImageProvider()
+    app.state.image_provider = image_provider
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
         ac.fake_provider = provider  # exposed for tests that need to queue more responses
+        ac.fake_image_provider = image_provider
         yield ac
 
     await engine.dispose()
@@ -321,3 +325,116 @@ async def test_character_not_found_404s(client: httpx.AsyncClient) -> None:
     assert (
         await client.patch("/characters/does-not-exist/identity", json={"visual_identity_id": "x"})
     ).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_style_bible_lock_blocks_update_until_recast(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    series_id = generated.json()["series_id"]
+
+    fetched = await client.get(f"/series/{series_id}/style-bible")
+    assert fetched.status_code == 200
+    assert fetched.json()["locked"] is False
+
+    updated = await client.patch(
+        f"/series/{series_id}/style-bible", json={"style_dna": "neon noir", "palette": ["#111", "#f2e"]}
+    )
+    assert updated.status_code == 200
+    assert updated.json()["style_dna"] == "neon noir"
+
+    locked = await client.post(f"/series/{series_id}/style-bible/lock")
+    assert locked.status_code == 200
+    assert locked.json()["locked"] is True
+
+    blocked = await client.patch(f"/series/{series_id}/style-bible", json={"style_dna": "another look"})
+    assert blocked.status_code == 409
+
+    recast = await client.post(f"/series/{series_id}/style-bible/unlock")
+    assert recast.json()["locked"] is False
+    assert recast.json()["version"] == 2
+
+
+@pytest.mark.asyncio
+async def test_storyboard_keyframe_generate_accept_flow(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    created_storyboard = await client.post(
+        f"/episodes/{episode1_id}/scenes/1/shots/1/storyboard",
+        json={"layout_description": "wide establishing, letter close-up"},
+    )
+    assert created_storyboard.status_code == 200, created_storyboard.text
+    storyboard = created_storyboard.json()
+    assert storyboard["status"] == "draft"
+    storyboard_id = storyboard["id"]
+
+    idempotent = await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/storyboard")
+    assert idempotent.json()["id"] == storyboard_id
+
+    listed = await client.get(f"/episodes/{episode1_id}/storyboards")
+    assert len(listed.json()) == 1
+
+    client.fake_image_provider.queue(b"generated keyframe bytes")
+    generated_keyframe = await client.post(f"/storyboards/{storyboard_id}/keyframes/generate")
+    assert generated_keyframe.status_code == 200, generated_keyframe.text
+    asset = generated_keyframe.json()
+    assert asset["take_number"] == 1
+    assert asset["status"] == "pending"
+
+    keyframes = await client.get(f"/storyboards/{storyboard_id}/keyframes")
+    assert len(keyframes.json()) == 1
+
+    accepted = await client.post(f"/storyboards/{storyboard_id}/keyframes/{asset['id']}/accept")
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "approved"
+    assert accepted.json()["approved_keyframe_asset_id"] == asset["id"]
+
+
+@pytest.mark.asyncio
+async def test_storyboard_keyframe_reject_and_manual_upload_retry(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+    storyboard_id = (
+        await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/storyboard")
+    ).json()["id"]
+
+    client.fake_image_provider.queue(b"bad take")
+    first = (await client.post(f"/storyboards/{storyboard_id}/keyframes/generate")).json()
+
+    rejected = await client.post(
+        f"/storyboards/{storyboard_id}/keyframes/{first['id']}/reject", params={"reason": "face drift"}
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+
+    still_draft = await client.get(f"/storyboards/{storyboard_id}")
+    assert still_draft.json()["status"] == "draft"
+
+    retry_upload = await client.post(
+        f"/storyboards/{storyboard_id}/keyframes/upload",
+        files={"file": ("retake.png", b"manual retake bytes", "image/png")},
+    )
+    assert retry_upload.status_code == 200, retry_upload.text
+    assert retry_upload.json()["take_number"] == 2
+    assert retry_upload.json()["provenance"]["provider"] == "manual_upload"
+
+
+@pytest.mark.asyncio
+async def test_storyboard_not_found_404s(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/storyboards/does-not-exist")).status_code == 404
+    assert (await client.post("/storyboards/does-not-exist/keyframes/generate")).status_code == 404

@@ -2,6 +2,7 @@ import fixtures as fx
 from xerama.domain.character import CharacterCast
 from xerama.domain.scene import Camera, EpisodeShotPlan, ProviderRequirements, Scene, Shot, Visual
 from xerama.domain.story import SeriesBible
+from xerama.domain.style_bible import StyleBible
 from xerama.pipeline.prompt_compiler import DEFAULT_NEGATIVE_CONSTRAINTS, PromptCompiler
 
 
@@ -95,6 +96,39 @@ def test_compile_episode_returns_one_request_per_shot() -> None:
     requests = PromptCompiler().compile_episode(plan, _cast(), _bible())
     assert len(requests) == 3
     assert [r.scene_number for r in requests] == [1, 2, 2]
+
+
+def test_compile_shot_uses_style_bible_dna_and_negatives_when_supplied() -> None:
+    scene = _scene_with_shot()
+    style_bible = StyleBible(
+        id="SB_1",
+        series_id="SER_1",
+        style_asset_id="ASSET_STYLE_ROOT",
+        style_dna="high-contrast neon noir",
+        negatives=["oversaturated pastel palette"],
+    )
+    request = PromptCompiler().compile_shot(scene.shots[0], scene, _cast(), _bible(), style_bible)
+    assert request.style_dna == "high-contrast neon noir"
+    assert "oversaturated pastel palette" in request.negative_prompt
+    for constraint in DEFAULT_NEGATIVE_CONSTRAINTS:
+        assert constraint in request.negative_prompt
+    assert request.references.style_asset_id == "ASSET_STYLE_ROOT"
+
+
+def test_compile_shot_shot_level_style_asset_overrides_style_bible() -> None:
+    from xerama.domain.scene import ShotReferences
+
+    scene = _scene_with_shot(references=ShotReferences(style_asset_id="ASSET_SHOT_STYLE"))
+    style_bible = StyleBible(id="SB_1", series_id="SER_1", style_asset_id="ASSET_SERIES_STYLE")
+    request = PromptCompiler().compile_shot(scene.shots[0], scene, _cast(), _bible(), style_bible)
+    assert request.references.style_asset_id == "ASSET_SHOT_STYLE"
+
+
+def test_compile_shot_without_style_bible_matches_prior_behavior() -> None:
+    scene = _scene_with_shot()
+    request = PromptCompiler().compile_shot(scene.shots[0], scene, _cast(), _bible())
+    assert request.style_dna == ""
+    assert request.references.style_asset_id is None
 
 
 def test_character_dna_formats_from_structured_fields_when_present() -> None:
