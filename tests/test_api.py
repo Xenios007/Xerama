@@ -95,6 +95,13 @@ async def test_generate_series_end_to_end(client: httpx.AsyncClient) -> None:
     assert shots_response.status_code == 200
     assert shots_response.json()["scenes"][0]["shots"][0]["camera"]["shot_size"] == "close-up"
 
+    generation_requests_response = await client.get(f"/episodes/{episode1_id}/generation-requests")
+    assert generation_requests_response.status_code == 200
+    compiled = generation_requests_response.json()
+    assert len(compiled) == 1
+    assert "close-up" in compiled[0]["prompt"]
+    assert compiled[0]["references"]["character_asset_ids"] == ["CHAR_001"]
+
     season_plan_response = await client.get(f"/series/{series_id}/season-plan")
     assert season_plan_response.status_code == 200
     season_body = season_plan_response.json()
