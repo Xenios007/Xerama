@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 from xerama.api.routers import (
     assets,
+    audio_production,
     characters,
     episodes,
     generation,
@@ -19,6 +20,7 @@ from xerama.api.routers import (
     storyboards,
     style_bible,
     video_production,
+    voice_profile,
 )
 from xerama.config import ModelRoleRegistry, Settings, get_settings
 from xerama.db.base import create_all, make_engine, make_session_factory
@@ -108,6 +110,8 @@ def create_app() -> FastAPI:
     app.include_router(style_bible.router)
     app.include_router(storyboards.router)
     app.include_router(video_production.router)
+    app.include_router(voice_profile.router)
+    app.include_router(audio_production.router)
     return app
 
 

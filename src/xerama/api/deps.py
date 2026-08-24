@@ -14,9 +14,11 @@ from xerama.providers.frame_extractor import FrameExtractor
 from xerama.providers.image import ImageProvider
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.providers.video import VideoProvider
+from xerama.providers.voice import VoiceProvider
 from xerama.services.media_router import MediaProviderRouter
 from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyAssetRepository,
+    SQLAlchemyAudioProductionRepository,
     SQLAlchemyCharacterCastingRepository,
     SQLAlchemyConceptRepository,
     SQLAlchemyEpisodeRepository,
@@ -27,12 +29,15 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyStoryboardRepository,
     SQLAlchemyStyleBibleRepository,
     SQLAlchemyVideoProductionRepository,
+    SQLAlchemyVoiceProfileRepository,
 )
 from xerama.services.asset_service import AssetService
+from xerama.services.audio_production_service import AudioProductionService
 from xerama.services.character_casting_service import CharacterCastingService
 from xerama.services.storyboard_service import StoryboardService
 from xerama.services.style_bible_service import StyleBibleService
 from xerama.services.video_production_service import VideoProductionService
+from xerama.services.voice_profile_service import VoiceProfileService
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -108,6 +113,33 @@ def get_video_production_service(
         production_repo=SQLAlchemyVideoProductionRepository(session),
         asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
         frame_extractor=frame_extractor,
+    )
+
+
+def get_voice_profile_repo(
+    session: AsyncSession = Depends(get_session),
+) -> SQLAlchemyVoiceProfileRepository:
+    return SQLAlchemyVoiceProfileRepository(session)
+
+
+def get_voice_profile_service(
+    session: AsyncSession = Depends(get_session),
+) -> VoiceProfileService:
+    return VoiceProfileService(repo=SQLAlchemyVoiceProfileRepository(session))
+
+
+def get_voice_router(request: Request) -> MediaProviderRouter[VoiceProvider]:
+    return request.app.state.voice_router
+
+
+def get_audio_production_service(
+    session: AsyncSession = Depends(get_session),
+    storage: LocalStorageProvider = Depends(get_storage_provider),
+) -> AudioProductionService:
+    return AudioProductionService(
+        production_repo=SQLAlchemyAudioProductionRepository(session),
+        voice_profile_repo=SQLAlchemyVoiceProfileRepository(session),
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
     )
 
 
