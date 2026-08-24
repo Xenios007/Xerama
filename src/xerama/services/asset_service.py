@@ -32,6 +32,9 @@ class AssetService:
         mime_type: str = "",
         ext: str = "",
         take_number: int = 1,
+        width: int | None = None,
+        height: int | None = None,
+        duration_seconds: float | None = None,
     ) -> Asset:
         content_hash = hashlib.sha256(data).hexdigest()
         relative_path = f"{content_hash[:2]}/{content_hash}{ext}"
@@ -48,6 +51,9 @@ class AssetService:
             mime_type=mime_type,
             size_bytes=len(data),
             take_number=take_number,
+            width=width,
+            height=height,
+            duration_seconds=duration_seconds,
         )
 
     async def ingest_file(
@@ -59,10 +65,14 @@ class AssetService:
         mime_type: str = "",
         ext: str = "",
         take_number: int = 1,
+        width: int | None = None,
+        height: int | None = None,
+        duration_seconds: float | None = None,
     ) -> Asset:
         data = await asyncio.to_thread(Path(source_path).read_bytes)
         return await self.ingest_bytes(
-            data, asset_type, ownership, provenance, mime_type, ext, take_number
+            data, asset_type, ownership, provenance, mime_type, ext, take_number,
+            width, height, duration_seconds,
         )
 
     async def ingest_from_url(
@@ -74,6 +84,9 @@ class AssetService:
         provenance: AssetProvenance | None = None,
         ext: str = "",
         take_number: int = 1,
+        width: int | None = None,
+        height: int | None = None,
+        duration_seconds: float | None = None,
     ) -> Asset:
         """Downloads a (typically temporary) provider URL and immediately
         persists it - see ADR-020, "never treat provider URLs as permanent"."""
@@ -82,7 +95,8 @@ class AssetService:
         provenance = (provenance or AssetProvenance()).model_copy(update={"source_url": url})
         mime_type = response.headers.get("content-type", "")
         return await self.ingest_bytes(
-            response.content, asset_type, ownership, provenance, mime_type, ext, take_number
+            response.content, asset_type, ownership, provenance, mime_type, ext, take_number,
+            width, height, duration_seconds,
         )
 
     async def get(self, asset_id: str) -> Asset | None:

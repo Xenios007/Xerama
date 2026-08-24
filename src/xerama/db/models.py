@@ -435,3 +435,20 @@ class Storyboard(Base):
     layout_description: Mapped[str] = mapped_column(Text, default="")
     approved_keyframe_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ShotVideoProduction(Base):
+    """Per-shot video workflow record - see Module 08. Individual takes are
+    `Asset` rows (type=video), not duplicated here."""
+
+    __tablename__ = "shot_video_productions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    episode_id: Mapped[str] = mapped_column(ForeignKey("episodes.id"), index=True)
+    scene_number: Mapped[int] = mapped_column(Integer)
+    shot_number: Mapped[int] = mapped_column(Integer)
+    continuity_group: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    approved_take_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    extracted_last_frame_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)

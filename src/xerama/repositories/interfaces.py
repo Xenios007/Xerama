@@ -22,6 +22,7 @@ from xerama.domain.season import SeasonPlan
 from xerama.domain.storyboard import Storyboard
 from xerama.domain.story import ConceptCandidate, JudgeResult
 from xerama.domain.style_bible import StyleBible
+from xerama.domain.video_production import ShotVideoProduction
 from xerama.domain.enums import JobStage, JobStatus
 
 
@@ -305,3 +306,31 @@ class StoryboardRepository(Protocol):
     async def approve(self, storyboard_id: str, asset_id: str) -> Storyboard: ...
 
     async def list_by_episode(self, episode_id: str) -> list[Storyboard]: ...
+
+
+class VideoProductionRepository(Protocol):
+    """Per-shot video workflow records - see Module 08."""
+
+    async def get_or_create(
+        self,
+        episode_id: str,
+        scene_number: int,
+        shot_number: int,
+        continuity_group: str | None = None,
+    ) -> ShotVideoProduction: ...
+
+    async def get(self, production_id: str) -> ShotVideoProduction | None: ...
+
+    async def get_previous_in_continuity_group(
+        self, episode_id: str, continuity_group: str, before_scene_number: int, before_shot_number: int
+    ) -> ShotVideoProduction | None:
+        """The production record with the highest (scene_number, shot_number)
+        strictly before the given position, sharing `continuity_group` -
+        i.e. the immediately preceding shot in the same continuity chain."""
+        ...
+
+    async def approve(self, production_id: str, asset_id: str) -> ShotVideoProduction: ...
+
+    async def set_extracted_last_frame(self, production_id: str, asset_id: str) -> ShotVideoProduction: ...
+
+    async def list_by_episode(self, episode_id: str) -> list[ShotVideoProduction]: ...

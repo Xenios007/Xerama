@@ -27,6 +27,7 @@ from xerama.domain.season import SeasonPlan
 from xerama.domain.storyboard import Storyboard
 from xerama.domain.story import ConceptCandidate, JudgeResult, SeriesBible
 from xerama.domain.style_bible import StyleBible
+from xerama.domain.video_production import ShotVideoProduction
 from xerama.repositories.interfaces import (
     EpisodeRecord,
     JobRecord,
@@ -1055,3 +1056,93 @@ class SQLAlchemyStoryboardRepository:
             select(m.Storyboard).where(m.Storyboard.episode_id == episode_id)
         )
         return [_storyboard(row) for row in result.scalars()]
+
+
+def _video_production(row: m.ShotVideoProduction) -> ShotVideoProduction:
+    return ShotVideoProduction(
+        id=row.id,
+        episode_id=row.episode_id,
+        scene_number=row.scene_number,
+        shot_number=row.shot_number,
+        continuity_group=row.continuity_group,
+        status=row.status,
+        approved_take_asset_id=row.approved_take_asset_id,
+        extracted_last_frame_asset_id=row.extracted_last_frame_asset_id,
+    )
+
+
+class SQLAlchemyVideoProductionRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_or_create(
+        self,
+        episode_id: str,
+        scene_number: int,
+        shot_number: int,
+        continuity_group: str | None = None,
+    ) -> ShotVideoProduction:
+        result = await self._session.execute(
+            select(m.ShotVideoProduction).where(
+                m.ShotVideoProduction.episode_id == episode_id,
+                m.ShotVideoProduction.scene_number == scene_number,
+                m.ShotVideoProduction.shot_number == shot_number,
+            )
+        )
+        row = result.scalars().first()
+        if row is None:
+            row = m.ShotVideoProduction(
+                episode_id=episode_id,
+                scene_number=scene_number,
+                shot_number=shot_number,
+                continuity_group=continuity_group,
+            )
+            self._session.add(row)
+            await self._session.flush()
+        return _video_production(row)
+
+    async def get(self, production_id: str) -> ShotVideoProduction | None:
+        row = await self._session.get(m.ShotVideoProduction, production_id)
+        return _video_production(row) if row is not None else None
+
+    async def get_previous_in_continuity_group(
+        self, episode_id: str, continuity_group: str, before_scene_number: int, before_shot_number: int
+    ) -> ShotVideoProduction | None:
+        result = await self._session.execute(
+            select(m.ShotVideoProduction).where(
+                m.ShotVideoProduction.episode_id == episode_id,
+                m.ShotVideoProduction.continuity_group == continuity_group,
+            )
+        )
+        candidates = [
+            row
+            for row in result.scalars()
+            if (row.scene_number, row.shot_number) < (before_scene_number, before_shot_number)
+        ]
+        if not candidates:
+            return None
+        latest = max(candidates, key=lambda row: (row.scene_number, row.shot_number))
+        return _video_production(latest)
+
+    async def approve(self, production_id: str, asset_id: str) -> ShotVideoProduction:
+        row = await self._session.get(m.ShotVideoProduction, production_id)
+        if row is None:
+            raise ValueError(f"video production {production_id} not found")
+        row.status = "approved"
+        row.approved_take_asset_id = asset_id
+        await self._session.flush()
+        return _video_production(row)
+
+    async def set_extracted_last_frame(self, production_id: str, asset_id: str) -> ShotVideoProduction:
+        row = await self._session.get(m.ShotVideoProduction, production_id)
+        if row is None:
+            raise ValueError(f"video production {production_id} not found")
+        row.extracted_last_frame_asset_id = asset_id
+        await self._session.flush()
+        return _video_production(row)
+
+    async def list_by_episode(self, episode_id: str) -> list[ShotVideoProduction]:
+        result = await self._session.execute(
+            select(m.ShotVideoProduction).where(m.ShotVideoProduction.episode_id == episode_id)
+        )
+        return [_video_production(row) for row in result.scalars()]
