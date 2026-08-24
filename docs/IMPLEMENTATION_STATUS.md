@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - Module 01 (Season & Reveal Engine)._
+_Last updated: 2026-08-25 - Module 02 (Multi-Episode Engine)._
 
 This tracks what actually exists in `src/xerama` against the architecture in
 `docs/` and `research/`, per the project rule "when implementation reveals
@@ -69,7 +69,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 77 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 87 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -108,6 +108,45 @@ documentation - do not silently diverge."
   `GET .../{version}`, `POST .../regenerate`, `POST .../{version}/approve`.
 - **Migration** - `alembic/versions/276af56e655b_add_season_plans.py`.
 
+### Module 02 - Multi-Episode Engine
+
+- **`EpisodeEngine`** (`pipeline/episode_engine.py`) extends generation from
+  Episode-1-only to any episode: `generate_episode(project_id, series_id, n)`,
+  `generate_next_unfinished(...)`, `generate_range(..., start, end)`.
+  Workflow per episode: (already-approved outline) -> script -> shots (with
+  the existing one-retry-on-BLOCK loop) -> retention/continuity QC -> canon
+  commit only if neither gate BLOCKed. `Showrunner.run()` now delegates
+  Episode 1 generation to this engine instead of duplicating the logic
+  inline (`JobRunner`, extracted from the old `Showrunner._run_job`, is
+  shared by both).
+- **Bounded canon context** (`pipeline/canon_builder.py`) - builds each
+  episode's `CanonSnapshot` from committed `CanonEvent` rows and prior
+  *committed* episodes' outlines only (objective + cliffhanger), never from
+  raw prior scripts. The `recap` field is explicitly convenience context;
+  `locked_facts`/`character_summaries`/`unresolved_hooks`/`prior_events`
+  are what continuity checks and prompts actually rely on.
+- **Failed episodes never enter canon** - unchanged rule from XER-001,
+  extended to every episode: `EpisodeGenerationStatus.QC_BLOCKED` episodes
+  commit no `CanonEvent` rows, so episode N+1's canon snapshot cannot see
+  anything from a rejected episode N.
+- **Regeneration safety** - regenerating an already-`CANON_COMMITTED`
+  episode retires (not deletes) its previous canon events
+  (`EpisodeRepository.invalidate_canon_events`, `committed=False`) before
+  recommitting fresh ones, and marks every *later* `CANON_COMMITTED`
+  episode `STALE` (`_invalidate_downstream`) rather than silently leaving
+  it built on canon that no longer holds. `Episode.version` increments each
+  time a script is regenerated (lightweight "versioned reruns" signal; full
+  script-history versioning was judged out of scope - see deviation below).
+- **Resume** - `generate_next_unfinished` picks the lowest-numbered episode
+  that is not yet `CANON_COMMITTED` (so a `QC_BLOCKED` episode is retried,
+  not skipped), which is what "reopen/resume from database" means in
+  practice for Trial 01 - see deviation note below.
+- **API** - `POST /series/{id}/episodes/{n}/generate`,
+  `POST .../generate-next`, `POST .../generate-range?start=&end=` (all take
+  `project_id` as a query param for job attribution).
+- **Migration** - `alembic/versions/a6445d655373_add_episode_version.py`
+  (`episodes.version`).
+
 ## Partially implemented
 
 - **Character/Style identity** - the textual/structural layer (`Character`,
@@ -129,13 +168,13 @@ documentation - do not silently diverge."
 
 - Director/Media Engine: image/video/voice/lip-sync provider adapters,
   Style Bible table, storage provider abstraction, FFmpeg assembly.
-- Episode 2+ scripts (outlines now derive from the season plan for the full
-  requested count; only Episode 1 gets a full script/shot plan - Module 02
-  extends this into a real multi-episode engine).
 - Analytics/learning feedback loop (Phase 5).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
-- See `modules/README.md` for the full remaining module list (02-14).
+- See `modules/README.md` for the full remaining module list (03-14).
+- `Showrunner.run()` still auto-generates only Episode 1 end-to-end (by
+  design - see deviation below); episodes 2..N require an explicit
+  `EpisodeEngine` call (API or code).
 
 ## Blocked
 
@@ -183,3 +222,25 @@ consistent enough to start coding per
    responsibility), reserves `episode_writer` for episode script prose only,
    and reuses `story_architect` for MERGE-decision concept synthesis (no
    dedicated "concept merger" role exists in the docs).
+6. **Scope choices in Module 02** - `modules/02_MULTI_EPISODE_ENGINE.md`
+   leaves several implementation details open:
+   - **"Resume after failure"** is implemented at the *episode* granularity,
+     not mid-episode: `generate_next_unfinished` restarts a `QC_BLOCKED`
+     episode from its script rather than checkpointing after the script
+     succeeded but shots failed. Full episode regeneration is cheap enough
+     (2 LLM calls) that finer-grained resume was judged not worth the
+     added state machine for Trial 01.
+   - **"Versioned reruns"** is a lightweight `Episode.version` counter, not
+     a kept history of every past script/shot-plan body (unlike
+     `ConceptCandidateRecord` or `SeasonPlanRecord`, which do keep every
+     version). `QualityReport` rows already preserve the per-attempt score/
+     reasons audit trail for every take, which was judged sufficient
+     evidence without also storing full superseded script text. Revisit if
+     a future module needs to diff/restore a specific past episode script.
+   - **`Showrunner.run()` still only auto-generates Episode 1** end-to-end;
+     it does not loop `EpisodeEngine` over the full season automatically.
+     This preserves the existing XER-001 "first end-to-end test" contract
+     (docs/README.md's target pipeline description and existing
+     `POST /generate-series` semantics) rather than silently turning one
+     API call into N sequential LLM-heavy episode generations. Episodes
+     2..N are one explicit call away (`generate-next`/`generate-range`).

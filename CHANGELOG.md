@@ -4,6 +4,31 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (Module 02 - Multi-Episode Engine)
+
+- `EpisodeEngine`: generate/regenerate any episode (`generate_episode`),
+  the next unfinished one (`generate_next_unfinished`), or a range
+  (`generate_range`) - script -> shots (existing retry-on-BLOCK loop) ->
+  story QC -> canon commit, gated the same way Episode 1 already was.
+- `pipeline/canon_builder.py`: builds each episode's bounded `CanonSnapshot`
+  from committed canon events + prior *committed* episode outlines only -
+  never raw prior scripts.
+- Regeneration safety: regenerating a committed episode retires its old
+  canon events (`committed=False`, never deleted) before recommitting fresh
+  ones, and marks every later committed episode `STALE`. `Episode.version`
+  increments on each script regeneration.
+- `Showrunner`/`EpisodeEngine` now share one `JobRunner` (extracted from the
+  old duplicated `Showrunner._run_job`) instead of duplicating job
+  bookkeeping.
+- New API: `POST /series/{id}/episodes/{n}/generate`,
+  `POST .../generate-next`, `POST .../generate-range`.
+- Migration for `episodes.version`.
+- 14 new tests (canon-snapshot bounding, 3-episode serialization with
+  cross-episode canon propagation verified in the actual LLM prompt,
+  blocked-episode-never-enters-canon, resume-retries-blocked-episode,
+  regeneration marks downstream stale + replaces (not duplicates) canon,
+  plus API coverage).
+
 ### Added (Module 01 - Season & Reveal Engine)
 
 - `SeasonPlan` domain model (acts, mysteries, promises, reveal ladder with
