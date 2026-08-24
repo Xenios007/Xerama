@@ -31,6 +31,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemySoundEffectCueRepository,
     SQLAlchemyStoryboardRepository,
     SQLAlchemyStyleBibleRepository,
+    SQLAlchemySubtitleCueRepository,
     SQLAlchemyVideoProductionRepository,
     SQLAlchemyVoiceProfileRepository,
 )
@@ -41,6 +42,7 @@ from xerama.services.music_cue_service import MusicCueService
 from xerama.services.sound_effect_service import SoundEffectCueService
 from xerama.services.storyboard_service import StoryboardService
 from xerama.services.style_bible_service import StyleBibleService
+from xerama.services.subtitle_service import SubtitleService
 from xerama.services.video_production_service import VideoProductionService
 from xerama.services.voice_profile_service import VoiceProfileService
 
@@ -160,6 +162,10 @@ def get_sound_effect_cue_service(
     session: AsyncSession = Depends(get_session),
 ) -> SoundEffectCueService:
     return SoundEffectCueService(repo=SQLAlchemySoundEffectCueRepository(session))
+
+
+def get_subtitle_service(session: AsyncSession = Depends(get_session)) -> SubtitleService:
+    return SubtitleService(repo=SQLAlchemySubtitleCueRepository(session))
 
 
 def get_project_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyProjectRepository:
