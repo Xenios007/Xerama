@@ -31,8 +31,14 @@ class ShotStage:
     def __init__(self, gateway: AIGateway) -> None:
         self._gateway = gateway
 
-    async def plan_shots(self, script: EpisodeScript) -> EpisodeShotPlan:
+    async def plan_shots(self, script: EpisodeScript, feedback: str = "") -> EpisodeShotPlan:
         prompt = f"Episode script:\n{script.model_dump_json(indent=2)}"
+        if feedback:
+            prompt += (
+                "\n\nThe previous shot plan was rejected by continuity QC for: "
+                f"{feedback}. Fix these issues explicitly - only reference "
+                "characters and locations that actually appear in the script above."
+            )
         return await self._gateway.generate(
             role=ModelRole.SHOT_PLANNER,
             schema=EpisodeShotPlan,

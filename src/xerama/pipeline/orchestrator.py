@@ -20,13 +20,14 @@ from pydantic import BaseModel
 from xerama.domain.brief import CreativeBrief
 from xerama.domain.canon import CanonSnapshot
 from xerama.domain.character import CharacterCast
-from xerama.domain.enums import JobStage, ModelRole
+from xerama.domain.enums import JobStage, ModelRole, QCStatus
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan
 from xerama.domain.story import ConceptCandidate, JudgeResult, SeriesBible
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.pipeline.bible_stage import BibleStage
+from xerama.pipeline.canon_commit import build_canon_events
 from xerama.pipeline.character_stage import CharacterStage
 from xerama.pipeline.concept_stage import ConceptStage
 from xerama.pipeline.episode_stage import EpisodeStage
@@ -40,6 +41,11 @@ from xerama.repositories.interfaces import (
 )
 
 T = TypeVar("T")
+
+# Targeted retry, not whole-episode regeneration - see ADR-019. Bounded to
+# one retry for V1; repeated continuity failures are left BLOCK for human
+# review rather than looping indefinitely.
+MAX_SHOT_PLAN_ATTEMPTS = 2
 
 
 class PipelineResult(BaseModel):
@@ -182,20 +188,36 @@ class Showrunner:
         )
         await self._episode_repo.save_script(episode1_id, episode1_script)
 
-        episode1_shot_plan = await self._run_job(
-            project_id,
-            JobStage.SCENE_SHOT_PLANNING,
-            self._gateway.resolve_model(ModelRole.SHOT_PLANNER),
-            self._shot_stage.plan_shots(episode1_script),
-        )
-        await self._episode_repo.save_shot_plan(episode1_id, episode1_shot_plan)
+        shot_planner_model = self._gateway.resolve_model(ModelRole.SHOT_PLANNER)
+        feedback = ""
+        for attempt in range(1, MAX_SHOT_PLAN_ATTEMPTS + 1):
+            episode1_shot_plan = await self._run_job(
+                project_id,
+                JobStage.SCENE_SHOT_PLANNING,
+                shot_planner_model,
+                self._shot_stage.plan_shots(episode1_script, feedback=feedback),
+            )
+            await self._episode_repo.save_shot_plan(episode1_id, episode1_shot_plan)
 
-        retention_qc = self._retention_validator.validate(
-            episode1_outline, episode1_script, episode1_shot_plan
-        )
-        continuity_qc = self._continuity_validator.validate(cast, episode1_script, episode1_shot_plan)
-        await self._episode_repo.save_quality_report(episode1_id, retention_qc)
-        await self._episode_repo.save_quality_report(episode1_id, continuity_qc)
+            retention_qc = self._retention_validator.validate(
+                episode1_outline, episode1_script, episode1_shot_plan
+            )
+            continuity_qc = self._continuity_validator.validate(
+                cast, episode1_script, episode1_shot_plan
+            )
+            # Both reports are saved on every attempt (never overwritten) so
+            # a rejected take's reasons stay available for benchmarking -
+            # see ADR-019.
+            await self._episode_repo.save_quality_report(episode1_id, retention_qc)
+            await self._episode_repo.save_quality_report(episode1_id, continuity_qc)
+
+            if continuity_qc.status != QCStatus.BLOCK or attempt == MAX_SHOT_PLAN_ATTEMPTS:
+                break
+            feedback = "; ".join(continuity_qc.reasons)
+
+        if retention_qc.status != QCStatus.BLOCK and continuity_qc.status != QCStatus.BLOCK:
+            for event in build_canon_events(episode1_outline.episode_number, episode1_outline.canon_changes):
+                await self._episode_repo.save_canon_event(episode1_id, event)
 
         return PipelineResult(
             project_id=project_id,
