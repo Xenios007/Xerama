@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from xerama.db import models as m
 from xerama.db.base import utcnow
+from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetStatus, AssetType
 from xerama.domain.brief import CreativeBrief
 from xerama.domain.canon import CanonEvent
 from xerama.domain.character import Character, CharacterCast, RelationshipState
@@ -657,3 +658,119 @@ class SQLAlchemyJobRepository:
             attempt=row.attempt,
             error=row.error,
         )
+
+
+def _asset(row: m.Asset) -> Asset:
+    return Asset(
+        id=row.id,
+        type=AssetType(row.type),
+        status=AssetStatus(row.status),
+        storage_path=row.storage_path,
+        content_hash=row.content_hash,
+        mime_type=row.mime_type,
+        size_bytes=row.size_bytes,
+        width=row.width,
+        height=row.height,
+        duration_seconds=row.duration_seconds,
+        ownership=AssetOwnership(
+            project_id=row.project_id,
+            series_id=row.series_id,
+            episode_id=row.episode_id,
+            scene_number=row.scene_number,
+            shot_number=row.shot_number,
+        ),
+        provenance=AssetProvenance.model_validate(row.provenance),
+        take_number=row.take_number,
+        rejection_reason=row.rejection_reason,
+        created_at=row.created_at,
+    )
+
+
+class SQLAlchemyAssetRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        asset_type: AssetType,
+        storage_path: str,
+        content_hash: str,
+        ownership: AssetOwnership,
+        provenance: AssetProvenance | None = None,
+        mime_type: str = "",
+        size_bytes: int = 0,
+        width: int | None = None,
+        height: int | None = None,
+        duration_seconds: float | None = None,
+        take_number: int = 1,
+    ) -> Asset:
+        row = m.Asset(
+            type=asset_type.value,
+            storage_path=storage_path,
+            content_hash=content_hash,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            width=width,
+            height=height,
+            duration_seconds=duration_seconds,
+            project_id=ownership.project_id,
+            series_id=ownership.series_id,
+            episode_id=ownership.episode_id,
+            scene_number=ownership.scene_number,
+            shot_number=ownership.shot_number,
+            provenance=(provenance or AssetProvenance()).model_dump(mode="json"),
+            take_number=take_number,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _asset(row)
+
+    async def get(self, asset_id: str) -> Asset | None:
+        row = await self._session.get(m.Asset, asset_id)
+        return _asset(row) if row is not None else None
+
+    async def get_by_hash(self, content_hash: str) -> Asset | None:
+        result = await self._session.execute(
+            select(m.Asset).where(m.Asset.content_hash == content_hash)
+        )
+        row = result.scalars().first()
+        return _asset(row) if row is not None else None
+
+    async def list_by_ownership(
+        self,
+        project_id: str,
+        series_id: str | None = None,
+        episode_id: str | None = None,
+        asset_type: AssetType | None = None,
+    ) -> list[Asset]:
+        query = select(m.Asset).where(m.Asset.project_id == project_id)
+        if series_id is not None:
+            query = query.where(m.Asset.series_id == series_id)
+        if episode_id is not None:
+            query = query.where(m.Asset.episode_id == episode_id)
+        if asset_type is not None:
+            query = query.where(m.Asset.type == asset_type.value)
+        query = query.order_by(m.Asset.created_at)
+        result = await self._session.execute(query)
+        return [_asset(row) for row in result.scalars()]
+
+    async def list_all(self) -> list[Asset]:
+        result = await self._session.execute(select(m.Asset).order_by(m.Asset.created_at))
+        return [_asset(row) for row in result.scalars()]
+
+    async def set_status(
+        self, asset_id: str, status: AssetStatus, rejection_reason: str = ""
+    ) -> Asset:
+        row = await self._session.get(m.Asset, asset_id)
+        if row is None:
+            raise ValueError(f"asset {asset_id} not found")
+        row.status = status.value
+        row.rejection_reason = rejection_reason if status == AssetStatus.REJECTED else ""
+        await self._session.flush()
+        return _asset(row)
+
+    async def delete(self, asset_id: str) -> None:
+        row = await self._session.get(m.Asset, asset_id)
+        if row is not None:
+            await self._session.delete(row)
+            await self._session.flush()

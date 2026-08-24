@@ -11,6 +11,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field
 
+from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetStatus, AssetType
 from xerama.domain.brief import CreativeBrief
 from xerama.domain.canon import CanonEvent
 from xerama.domain.character import CharacterCast
@@ -190,3 +191,44 @@ class JobRepository(Protocol):
     async def fail(self, job_id: str, error: str) -> None: ...
 
     async def get(self, job_id: str) -> JobRecord | None: ...
+
+
+class AssetRepository(Protocol):
+    """Persistent media assets - see Module 04, ADR-020/022."""
+
+    async def create(
+        self,
+        asset_type: AssetType,
+        storage_path: str,
+        content_hash: str,
+        ownership: AssetOwnership,
+        provenance: AssetProvenance | None = None,
+        mime_type: str = "",
+        size_bytes: int = 0,
+        width: int | None = None,
+        height: int | None = None,
+        duration_seconds: float | None = None,
+        take_number: int = 1,
+    ) -> Asset: ...
+
+    async def get(self, asset_id: str) -> Asset | None: ...
+
+    async def get_by_hash(self, content_hash: str) -> Asset | None: ...
+
+    async def list_by_ownership(
+        self,
+        project_id: str,
+        series_id: str | None = None,
+        episode_id: str | None = None,
+        asset_type: AssetType | None = None,
+    ) -> list[Asset]: ...
+
+    async def list_all(self) -> list[Asset]:
+        """Every asset row - used for orphan/integrity scans."""
+        ...
+
+    async def set_status(
+        self, asset_id: str, status: AssetStatus, rejection_reason: str = ""
+    ) -> Asset: ...
+
+    async def delete(self, asset_id: str) -> None: ...

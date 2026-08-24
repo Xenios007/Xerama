@@ -339,3 +339,32 @@ class GenerationJob(Base):
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
     project: Mapped["Project"] = relationship(back_populates="jobs")
+
+
+class Asset(Base):
+    """Persistent media asset - see ADR-020/022 and Module 04. The DB never
+    holds the media bytes themselves (`storage_path` points into a
+    `StorageProvider`); ownership is flattened into real columns because
+    it's the main filter/join surface, provenance stays JSON."""
+
+    __tablename__ = "assets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    type: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    storage_path: Mapped[str] = mapped_column(String(512))
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    mime_type: Mapped[str] = mapped_column(String(128), default="")
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    project_id: Mapped[str] = mapped_column(String(32), index=True)
+    series_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    episode_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    scene_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    shot_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    provenance: Mapped[dict] = mapped_column(JSON, default=dict)
+    take_number: Mapped[int] = mapped_column(Integer, default=1)
+    rejection_reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
