@@ -4,29 +4,33 @@ API call - same pattern as `providers/fake.py`'s `FakeLLMProvider`.
 
 from collections import deque
 
+from xerama.providers.errors import ProviderError
 from xerama.providers.image import ImageGenerationRequest, ImageProviderCapabilities
 
 
 class FakeImageProvider:
-    """Returns pre-scripted image bytes in call order, or a deterministic
-    placeholder if nothing was queued. Every call is recorded in `.calls`
-    (request + how many reference images were supplied) for assertions."""
+    """Returns pre-scripted image bytes (or raises a queued `ProviderError`)
+    in call order, or a deterministic placeholder if nothing was queued.
+    Every call is recorded in `.calls` (request + how many reference images
+    were supplied) for assertions."""
 
     def __init__(
         self,
-        responses: list[bytes] | None = None,
+        responses: list[bytes | ProviderError] | None = None,
         capabilities: ImageProviderCapabilities | None = None,
+        name: str = "fake_image",
     ) -> None:
-        self._queue: deque[bytes] = deque(responses or [])
+        self._queue: deque[bytes | ProviderError] = deque(responses or [])
         self._capabilities = capabilities or ImageProviderCapabilities()
+        self._name = name
         self.calls: list[tuple[ImageGenerationRequest, int]] = []
 
-    def queue(self, data: bytes) -> None:
-        self._queue.append(data)
+    def queue(self, item: bytes | ProviderError) -> None:
+        self._queue.append(item)
 
     @property
     def name(self) -> str:
-        return "fake_image"
+        return self._name
 
     @property
     def capabilities(self) -> ImageProviderCapabilities:
@@ -35,5 +39,8 @@ class FakeImageProvider:
     async def generate(self, request: ImageGenerationRequest, reference_images: list[bytes]) -> bytes:
         self.calls.append((request, len(reference_images)))
         if self._queue:
-            return self._queue.popleft()
+            item = self._queue.popleft()
+            if isinstance(item, ProviderError):
+                raise item
+            return item
         return f"fake-image:{request.prompt}".encode()
