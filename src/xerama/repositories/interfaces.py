@@ -17,6 +17,7 @@ from xerama.domain.character import CharacterCast
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan
+from xerama.domain.season import SeasonPlan
 from xerama.domain.story import ConceptCandidate, JudgeResult
 from xerama.domain.enums import JobStage, JobStatus
 
@@ -48,6 +49,17 @@ class EpisodeRecord(BaseModel):
     status: str
     outline: EpisodeOutline
     script: EpisodeScript | None = None
+
+
+class SeasonPlanRecord(BaseModel):
+    id: str
+    series_id: str
+    version: int
+    status: str = "draft"
+    plan: SeasonPlan
+    qc_status: str = "pass"
+    qc_score: float = 0.0
+    qc_reasons: list[str] = Field(default_factory=list)
 
 
 class JobRecord(BaseModel):
@@ -106,6 +118,25 @@ class SeriesRepository(Protocol):
     async def save_cast(self, series_id: str, cast: CharacterCast) -> None: ...
 
     async def get_cast(self, series_id: str) -> CharacterCast: ...
+
+
+class SeasonRepository(Protocol):
+    """Versioned season/reveal plans - see Module 01 and ADR-019 (never
+    overwrite a rejected/superseded generation)."""
+
+    async def create_plan(
+        self, series_id: str, plan: SeasonPlan, qc: QCResult
+    ) -> SeasonPlanRecord: ...
+
+    async def get_current_plan(self, series_id: str) -> SeasonPlanRecord | None:
+        """Latest APPROVED version if one exists, else the latest version overall."""
+        ...
+
+    async def get_version(self, series_id: str, version: int) -> SeasonPlanRecord | None: ...
+
+    async def list_versions(self, series_id: str) -> list[SeasonPlanRecord]: ...
+
+    async def approve_version(self, series_id: str, version: int) -> SeasonPlanRecord: ...
 
 
 class EpisodeRepository(Protocol):

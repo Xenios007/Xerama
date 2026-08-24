@@ -15,11 +15,13 @@ from xerama.domain.enums import JobStage, JobStatus
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan, Scene as SceneDTO, Shot as ShotDTO
+from xerama.domain.season import SeasonPlan
 from xerama.domain.story import ConceptCandidate, JudgeResult, SeriesBible
 from xerama.repositories.interfaces import (
     EpisodeRecord,
     JobRecord,
     ProjectRecord,
+    SeasonPlanRecord,
     SeriesRecord,
 )
 
@@ -287,6 +289,93 @@ class SQLAlchemySeriesRepository:
             for row in rel_rows.scalars()
         ]
         return CharacterCast(characters=characters, relationships=relationships)
+
+
+def _season_plan_record(row: m.SeasonPlanRecord) -> SeasonPlanRecord:
+    return SeasonPlanRecord(
+        id=row.id,
+        series_id=row.series_id,
+        version=row.version,
+        status=row.status,
+        plan=SeasonPlan.model_validate(row.plan),
+        qc_status=row.qc_status,
+        qc_score=row.qc_score,
+        qc_reasons=row.qc_reasons,
+    )
+
+
+class SQLAlchemySeasonRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create_plan(self, series_id: str, plan: SeasonPlan, qc: QCResult) -> SeasonPlanRecord:
+        existing = await self._session.execute(
+            select(m.SeasonPlanRecord.version)
+            .where(m.SeasonPlanRecord.series_id == series_id)
+            .order_by(m.SeasonPlanRecord.version.desc())
+            .limit(1)
+        )
+        last_version = existing.scalar_one_or_none() or 0
+        row = m.SeasonPlanRecord(
+            series_id=series_id,
+            version=last_version + 1,
+            status="draft",
+            plan=plan.model_dump(mode="json"),
+            qc_status=qc.status.value,
+            qc_score=qc.score,
+            qc_reasons=qc.reasons,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _season_plan_record(row)
+
+    async def get_current_plan(self, series_id: str) -> SeasonPlanRecord | None:
+        approved = await self._session.execute(
+            select(m.SeasonPlanRecord)
+            .where(m.SeasonPlanRecord.series_id == series_id, m.SeasonPlanRecord.status == "approved")
+            .order_by(m.SeasonPlanRecord.version.desc())
+            .limit(1)
+        )
+        row = approved.scalar_one_or_none()
+        if row is None:
+            latest = await self._session.execute(
+                select(m.SeasonPlanRecord)
+                .where(m.SeasonPlanRecord.series_id == series_id)
+                .order_by(m.SeasonPlanRecord.version.desc())
+                .limit(1)
+            )
+            row = latest.scalar_one_or_none()
+        return _season_plan_record(row) if row is not None else None
+
+    async def get_version(self, series_id: str, version: int) -> SeasonPlanRecord | None:
+        result = await self._session.execute(
+            select(m.SeasonPlanRecord).where(
+                m.SeasonPlanRecord.series_id == series_id, m.SeasonPlanRecord.version == version
+            )
+        )
+        row = result.scalar_one_or_none()
+        return _season_plan_record(row) if row is not None else None
+
+    async def list_versions(self, series_id: str) -> list[SeasonPlanRecord]:
+        result = await self._session.execute(
+            select(m.SeasonPlanRecord)
+            .where(m.SeasonPlanRecord.series_id == series_id)
+            .order_by(m.SeasonPlanRecord.version)
+        )
+        return [_season_plan_record(row) for row in result.scalars()]
+
+    async def approve_version(self, series_id: str, version: int) -> SeasonPlanRecord:
+        result = await self._session.execute(
+            select(m.SeasonPlanRecord).where(
+                m.SeasonPlanRecord.series_id == series_id, m.SeasonPlanRecord.version == version
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            raise ValueError(f"season plan version {version} not found for series {series_id}")
+        row.status = "approved"
+        await self._session.flush()
+        return _season_plan_record(row)
 
 
 def _episode_record(row: m.Episode) -> EpisodeRecord:

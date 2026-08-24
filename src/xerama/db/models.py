@@ -103,6 +103,7 @@ class Series(Base):
     relationships_: Mapped[list["RelationshipRecord"]] = relationship(back_populates="series", cascade="all, delete-orphan")
     knowledge_facts: Mapped[list["KnowledgeFactRecord"]] = relationship(back_populates="series", cascade="all, delete-orphan")
     episodes: Mapped[list["Episode"]] = relationship(back_populates="series", cascade="all, delete-orphan")
+    season_plans: Mapped[list["SeasonPlanRecord"]] = relationship(back_populates="series", cascade="all, delete-orphan")
 
 
 class SeriesBible(Base):
@@ -124,6 +125,31 @@ class SeriesBible(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     series: Mapped["Series"] = relationship(back_populates="bible")
+
+
+class SeasonPlanRecord(Base):
+    """Versioned season/reveal map (Module 01 / XER-006).
+
+    Each regeneration inserts a new row (never overwrites) so a rejected
+    plan stays inspectable - same lineage philosophy as
+    `ConceptCandidateRecord` (ADR-019). `version` is per-series and
+    monotonically increasing; `status` tracks the inspect/regenerate/approve
+    workflow.
+    """
+
+    __tablename__ = "season_plans"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    series_id: Mapped[str] = mapped_column(ForeignKey("series.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    plan: Mapped[dict] = mapped_column(JSON)
+    qc_status: Mapped[str] = mapped_column(String(16), default="pass")
+    qc_score: Mapped[float] = mapped_column(Float, default=0.0)
+    qc_reasons: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    series: Mapped["Series"] = relationship(back_populates="season_plans")
 
 
 class Character(Base):
