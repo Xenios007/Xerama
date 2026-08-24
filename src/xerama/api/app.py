@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     http_client = httpx.AsyncClient(timeout=120.0)
     provider = OpenRouterProvider(
-        api_key=settings.openrouter_api_key,
+        api_key=settings.openrouter_api_key.get_secret_value(),
         base_url=settings.openrouter_base_url,
         http_client=http_client,
     )
@@ -80,7 +80,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # placeholder) when one isn't installed, same "optional real adapter"
     # principle as every media provider above.
     app.state.frame_extractor = (
-        FFmpegFrameExtractor() if shutil.which("ffmpeg") else FakeFrameExtractor()
+        FFmpegFrameExtractor(ffmpeg_path=settings.ffmpeg_path)
+        if shutil.which(settings.ffmpeg_path)
+        else FakeFrameExtractor()
     )
 
     yield

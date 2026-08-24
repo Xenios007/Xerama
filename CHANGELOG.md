@@ -4,6 +4,18 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Fixed (MODULE-001/002 audit - Core Platform Architecture, Configuration & Environment)
+
+- `domain/asset.py` no longer imports `xerama.db.base` (architecture-
+  boundary violation) - uses a local `_utcnow()` helper instead. Added
+  `tests/test_architecture_boundaries.py` to catch regressions.
+- `Settings.openrouter_api_key` is now `SecretStr` (never appears in
+  `repr()`/`str()`/logs); call sites use `.get_secret_value()`.
+- Added `Settings.ffmpeg_path` (env `FFMPEG_PATH`) instead of a hardcoded
+  `"ffmpeg"` binary name in `FFmpegFrameExtractor`.
+- New `tests/test_config.py` (defaults, env override, secret redaction,
+  model-role registry fallback/override).
+
 ### Added (MODULE-032 - Video Generation, formerly Module 08 - Video Production)
 
 - `ShotVideoProduction`: per-shot video workflow record (draft/approved +

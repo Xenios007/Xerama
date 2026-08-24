@@ -6,12 +6,17 @@ persisted immediately - provider URLs are not archival storage) and
 ADR-022 (local storage first, S3-compatible later).
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from xerama.db.base import utcnow
+
+def _utcnow() -> datetime:
+    # Domain contracts must not import xerama.db (see db/base.py's own
+    # boundary note: "Domain and pipeline code must never import this
+    # module directly") - MODULE-001 architecture audit.
+    return datetime.now(timezone.utc)
 
 
 class AssetType(str, Enum):
@@ -70,4 +75,4 @@ class Asset(BaseModel):
     provenance: AssetProvenance = Field(default_factory=AssetProvenance)
     take_number: int = 1
     rejection_reason: str = ""
-    created_at: datetime = Field(default_factory=utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)

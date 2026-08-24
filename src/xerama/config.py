@@ -9,7 +9,7 @@ permanent assumption.
 
 from functools import lru_cache
 
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from xerama.domain.enums import ModelRole
@@ -56,11 +56,14 @@ _ROLE_ENV_VAR = {
 
 
 class Settings(BaseSettings):
-    """Environment-backed application settings. Never log `openrouter_api_key`."""
+    """Environment-backed application settings. `openrouter_api_key` is a
+    `SecretStr` so it never appears in plain text in a log line, repr(),
+    or accidental str() of the settings object (MODULE-002 "never log or
+    commit secrets") - callers must explicitly call `.get_secret_value()`."""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    openrouter_api_key: str = ""
+    openrouter_api_key: SecretStr = SecretStr("")
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     xerama_mode: str = "standard"
@@ -68,6 +71,9 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite+aiosqlite:///./xerama.db"
     asset_storage_path: str = "./storage"
+    # Binary name/path for last-frame extraction (Module 08/MODULE-032) -
+    # override if ffmpeg isn't on PATH under this exact name.
+    ffmpeg_path: str = "ffmpeg"
 
     concept_model_a: str = ""
     concept_model_b: str = ""

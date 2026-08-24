@@ -51,7 +51,7 @@ async def main() -> None:
 
     async with httpx.AsyncClient(timeout=120.0) as http_client:
         provider = OpenRouterProvider(
-            api_key=settings.openrouter_api_key,
+            api_key=settings.openrouter_api_key.get_secret_value(),
             base_url=settings.openrouter_base_url,
             http_client=http_client,
         )

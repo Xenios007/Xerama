@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-032 (Video Generation)._
+_Last updated: 2026-08-25 - MODULE-001/002 audit (Core Platform Architecture, Configuration & Environment)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -78,7 +78,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 244 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 250 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -534,6 +534,42 @@ documentation - do not silently diverge."
   rejection/continuity-ordering-enforcement/continuity-chaining/resume-
   after-predecessor-accepted/reject-retry/manual-upload, and end-to-end API
   generate/accept and reject/manual-upload-retry coverage) plus the full
+  existing suite staying green.
+
+### MODULE-001 / MODULE-002 audit - Core Platform Architecture, Configuration & Environment
+
+- **Architecture-boundary audit** (MODULE-001) - found and fixed one real
+  violation: `domain/asset.py` imported `xerama.db.base.utcnow`, directly
+  contradicting `db/base.py`'s own documented boundary ("Domain and
+  pipeline code must never import this module directly"). Replaced with a
+  private `_utcnow()` helper local to `domain/asset.py` - no other
+  `domain/` module imports `db`/`api`/`repositories`/`providers`/
+  `pipeline`/`services`. Added `tests/test_architecture_boundaries.py`
+  (static text scan of every `domain/*.py` import line) so this class of
+  regression fails CI instead of needing to be rediscovered by audit.
+  Everything else audited under MODULE-001 (package layout, service/
+  repository/provider boundaries, application bootstrap) was already
+  sound - no other changes needed.
+- **Secret handling** (MODULE-002) - `Settings.openrouter_api_key` is now
+  `pydantic.SecretStr` instead of a plain `str`, so it can never leak
+  through a log line, `repr()`, or an accidental `str()` of the settings
+  object; call sites (`api/app.py`, `cli.py`) now call
+  `.get_secret_value()` explicitly at the one point they construct
+  `OpenRouterProvider`. `.env.example` already existed with placeholders
+  only (verified, no change needed).
+- **`ffmpeg_path` setting added** - Module 08/MODULE-032's
+  `FFmpegFrameExtractor` previously hardcoded the binary name `"ffmpeg"`;
+  it's now `Settings.ffmpeg_path` (env `FFMPEG_PATH`, default `"ffmpeg"`),
+  closing the "Centralize... FFmpeg... settings" requirement. Worker and
+  frontend/CORS settings are intentionally not added yet - no job
+  worker (MODULE-041/042) or frontend (MODULE-055+) exists to configure.
+- **`tests/test_config.py`** (new) - defaults, env-var override, secret
+  redaction (`repr`/`str` never contain the raw key), and
+  `ModelRoleRegistry` free-default-fallback/explicit-override coverage -
+  the exact test categories MODULE-002 asks for.
+- Both modules were AUDIT/EXTEND, not BUILD - no new subsystem was added;
+  existing config/architecture were already ~95% compliant, one real gap
+  found and closed per audit, verified by 6 new tests plus the full
   existing suite staying green.
 
 ## Partially implemented
