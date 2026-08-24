@@ -4,6 +4,35 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (Module 07 - Media Provider Registry & Router)
+
+- `VideoProvider`/`VoiceProvider`/`LipSyncProvider` capability contracts +
+  `FakeVideoProvider`/`FakeVoiceProvider`/`FakeLipSyncProvider` (scripted
+  bytes-or-`ProviderError` queue, same pattern as `FakeLLMProvider`/
+  `FakeImageProvider`). `providers/video.py:matches_requirements` filters a
+  video provider's capabilities against a shot's `ProviderRequirements`
+  (Module 03).
+- `MediaProviderRouter` (`services/media_router.py`): one generic router
+  over any provider type - capability filter -> health filter (reuses
+  `ProviderHealthTracker`/`ProviderError`, no second health/error system)
+  -> priority order (deterministic, stable tie-break) -> attempt -> record
+  reason -> fall back to the next eligible provider. Raises
+  `NoEligibleProviderError` with every attempt's outcome when nothing
+  works.
+- `StoryboardService.generate_keyframe` now takes a
+  `MediaProviderRouter[ImageProvider]` instead of a single provider, so
+  image keyframe requests route/fall back across every registered image
+  provider instead of a hardcoded one; routing attempts are recorded in
+  the resulting asset's provenance.
+- `app.state.image_router`/`video_router`/`voice_router`/`lip_sync_router`
+  wired in the app lifespan, each seeded with one fake provider (no real
+  credentialed adapter available); video/voice/lip-sync routers are ready
+  for Modules 08/09 to consume.
+- 20 new tests (deterministic priority ordering + stable tie-break,
+  capability filtering, health-circuit skip, fallback-after-failure,
+  exhausted-fallback error, fake video/voice/lip-sync provider round
+  trips, `matches_requirements` coverage).
+
 ### Added (Module 06 - Style Bible, Storyboard & Image Production)
 
 - `StyleBible` (ADR-013): one production-anchor row per series

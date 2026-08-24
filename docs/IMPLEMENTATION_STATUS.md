@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - Module 06 (Style Bible, Storyboard & Image Production)._
+_Last updated: 2026-08-25 - Module 07 (Media Provider Registry & Router)._
 
 This tracks what actually exists in `src/xerama` against the architecture in
 `docs/` and `research/`, per the project rule "when implementation reveals
@@ -69,7 +69,7 @@ documentation - do not silently diverge."
   inspect endpoints for jobs/series/bible/characters/episodes/shots.
 - **CLI** (`xerama/cli.py`) - `python -m xerama.cli --genre ... --premise ...`
   runs the same pipeline locally and prints the full structured result.
-- **Tests** - 201 tests (see `tests/`), all against `FakeLLMProvider` /
+- **Tests** - 221 tests (see `tests/`), all against `FakeLLMProvider` /
   respx-mocked HTTP, no paid API calls required.
 
 ### Module 01 - Season & Reveal Engine (XER-006)
@@ -392,6 +392,69 @@ documentation - do not silently diverge."
   rejection/take-numbering/accept-reject, and Style-Bible-into-PromptCompiler
   integration).
 
+### Module 07 - Media Provider Registry & Router
+
+- **`VideoProvider`/`VoiceProvider`/`LipSyncProvider` contracts**
+  (`providers/video.py`, `providers/voice.py`, `providers/lip_sync.py`) -
+  capability metadata per research/PRODUCTION_STACK_2026.md's video/voice/
+  lip-sync provider contract sections, plus a `FakeVideoProvider`/
+  `FakeVoiceProvider`/`FakeLipSyncProvider` for each (same scripted-queue
+  pattern as `FakeLLMProvider`/`FakeImageProvider` - can return bytes or
+  raise a queued `ProviderError`). `providers/video.py:matches_requirements`
+  is the eligibility filter between a shot's `ProviderRequirements`
+  (Module 03 - "declared here so the Module 07 router can filter eligible
+  providers without the Director knowing vendor names") and a video
+  provider's capabilities - the integration point Module 03 was built for.
+  `ImageProvider`/`FakeImageProvider` (Module 06) needed no contract
+  changes - it already matched the shape - but gained `ProviderError`
+  support in its queue and a configurable `name` (needed for router
+  fallback tests with multiple registered providers).
+- **`MediaProviderRouter`** (`services/media_router.py`) - one generic
+  router (not four copies) over any provider type exposing `.name` and
+  `.capabilities.priority`: capability filter (caller-supplied predicate,
+  since image/video/voice/lip-sync capability shapes all differ) -> health
+  filter (`ProviderHealthTracker`, reused as-is - ADR-011) -> priority
+  order (deterministic: higher `priority` first, stable tie-break on
+  registration order) -> attempt -> on `ProviderError`, record the failure
+  into the health tracker, log the reason as a `RoutingAttempt`, and try
+  the next eligible provider. Raises `NoEligibleProviderError` (carrying
+  every attempt's outcome) only once every eligible provider has been
+  tried. Reuses `ProviderError`/`classify_status_code`/`ProviderHealthTracker`
+  exactly as documented in their own docstrings ("and future media
+  providers") - no second error/health system was built.
+- **`pipeline/ai_gateway.py` (OpenRouter LLM path) is untouched** - the
+  module spec says "Preserve current OpenRouter behavior"; `AIGateway`
+  still retries the same single provider rather than falling back across
+  registered ones, which is a deliberate difference from
+  `MediaProviderRouter` (LLM routing/fallback across multiple providers
+  was never in scope here - only media generation).
+- **Module 06 upgraded to route through the registry** -
+  `StoryboardService.generate_keyframe` now takes a
+  `MediaProviderRouter[ImageProvider]` instead of a single injected
+  provider, so an image keyframe request asks for capabilities (aspect
+  ratio, reference-image support) and the router picks/falls back among
+  every registered image provider - the old `UnsupportedProviderCapabilityError`
+  (single-provider, pre-call rejection) is now `NoEligibleProviderError`
+  (multi-provider, tried-and-none-worked). Every accepted/attempted
+  provider's routing attempts are recorded in the resulting Asset's
+  `provenance.generation_params["routing_attempts"]` for audit.
+- **App wiring** - `app.state.image_router`/`video_router`/`voice_router`/
+  `lip_sync_router` are each a `MediaProviderRouter` seeded with one fake
+  provider (no real credentialed adapter is available in this
+  environment); `video_router`/`voice_router`/`lip_sync_router` exist as
+  registries ready for Modules 08/09 to consume - no endpoint calls them
+  yet, since actual video/audio production workflows are those modules'
+  job, not this one's.
+- Acceptance criterion met: a caller (`StoryboardService`, and any future
+  Module 08/09 caller) asks a `MediaProviderRouter` for a capability via an
+  `is_compatible` predicate, never names a vendor - verified by 20 new
+  tests (deterministic priority ordering incl. stable tie-break, capability
+  filtering, health-circuit skip, fallback-after-failure with health
+  recorded, exhausted-fallback error, fake video/voice/lip-sync provider
+  round trips, and `matches_requirements`'s aspect/duration/first-last-
+  frame/subject-reference/native-audio checks) plus the full existing
+  suite staying green through the `StoryboardService` refactor.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -412,12 +475,14 @@ documentation - do not silently diverge."
 
 ## Planned (not started)
 
-- Video/voice/lip-sync provider adapters, media provider router, FFmpeg
-  assembly (Modules 07-09/12).
+- Real (paid/free) video/voice/lip-sync provider adapters, job worker
+  scheduler, multimodal QC/retakes, FFmpeg assembly (Modules 08-12) - the
+  provider contracts/router/registries these will plug into already exist
+  (Module 07).
 - Analytics/learning feedback loop (Phase 5).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
-- See `modules/README.md` for the full remaining module list (07-14).
+- See `modules/README.md` for the full remaining module list (08-14).
 - `Showrunner.run()` still auto-generates only Episode 1 end-to-end (by
   design - see deviation below); episodes 2..N require an explicit
   `EpisodeEngine` call (API or code).
