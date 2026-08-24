@@ -11,7 +11,7 @@ real columns.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from xerama.db.base import Base, utcnow
@@ -174,10 +174,40 @@ class Character(Base):
     character_dna: Mapped[dict] = mapped_column(JSON, default=dict)
     visual_identity_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     voice_identity_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reference_pack: Mapped[dict] = mapped_column(JSON, default=dict)
+    identity_provenance: Mapped[dict] = mapped_column(JSON, default=dict)
+    locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    version: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(32), default="active")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     series: Mapped["Series"] = relationship(back_populates="characters")
+
+
+class CharacterWardrobeVariant(Base):
+    """See research/CHARACTER_CONTINUITY_PLAYBOOK.md "Wardrobe as assets"."""
+
+    __tablename__ = "character_wardrobe_variants"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    character_id: Mapped[str] = mapped_column(ForeignKey("characters.id"), index=True)
+    label: Mapped[str] = mapped_column(String(128))
+    reference_asset_ids: Mapped[list] = mapped_column(JSON, default=list)
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class CharacterPhysicalStateVariant(Base):
+    """See research/CHARACTER_CONTINUITY_PLAYBOOK.md "Physical State"."""
+
+    __tablename__ = "character_physical_state_variants"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    character_id: Mapped[str] = mapped_column(ForeignKey("characters.id"), index=True)
+    label: Mapped[str] = mapped_column(String(128))
+    reference_asset_ids: Mapped[list] = mapped_column(JSON, default=list)
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class RelationshipRecord(Base):
@@ -362,6 +392,7 @@ class Asset(Base):
     project_id: Mapped[str] = mapped_column(String(32), index=True)
     series_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     episode_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    character_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     scene_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     shot_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     provenance: Mapped[dict] = mapped_column(JSON, default=dict)

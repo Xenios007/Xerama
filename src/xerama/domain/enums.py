@@ -165,6 +165,15 @@ class EpisodeGenerationStatus(str, Enum):
     STALE = "stale"
 
 
+class IdentityType(str, Enum):
+    """See modules/05_CHARACTER_CASTING_STUDIO.md - the schema intentionally
+    offers no "unlicensed real person" option, so an unauthorized
+    celebrity-cloning workflow has no value to select here."""
+
+    SYNTHETIC_ORIGINAL = "synthetic_original"
+    LICENSED_AUTHORIZED = "licensed_authorized"
+
+
 class CanonChangeType(str, Enum):
     """See docs/DATA_MODEL.md (Episode State Change)."""
 

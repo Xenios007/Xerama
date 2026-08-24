@@ -37,6 +37,7 @@ class AssetOwnership(BaseModel):
     project_id: str
     series_id: str | None = None
     episode_id: str | None = None
+    character_id: str | None = None
     scene_number: int | None = None
     shot_number: int | None = None
 

@@ -11,7 +11,14 @@ from xerama.db.base import utcnow
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetStatus, AssetType
 from xerama.domain.brief import CreativeBrief
 from xerama.domain.canon import CanonEvent
-from xerama.domain.character import Character, CharacterCast, RelationshipState
+from xerama.domain.character import (
+    Character,
+    CharacterCast,
+    CharacterProvenance,
+    PhysicalStateVariant,
+    RelationshipState,
+    WardrobeVariant,
+)
 from xerama.domain.enums import JobStage, JobStatus
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
@@ -256,25 +263,7 @@ class SQLAlchemySeriesRepository:
         rel_rows = await self._session.execute(
             select(m.RelationshipRecord).where(m.RelationshipRecord.series_id == series_id)
         )
-        characters = [
-            Character(
-                id=row.id,
-                name=row.name,
-                role=row.role,
-                age=row.age,
-                description=row.description,
-                personality=row.personality,
-                goal=row.goal,
-                fear=row.fear,
-                flaw=row.flaw,
-                secret=row.secret,
-                character_dna=row.character_dna,
-                visual_identity_id=row.visual_identity_id,
-                voice_identity_id=row.voice_identity_id,
-                status=row.status,
-            )
-            for row in char_rows.scalars()
-        ]
+        characters = [_character(row) for row in char_rows.scalars()]
         relationships = [
             RelationshipState(
                 source_character_id=row.source_character_id,
@@ -676,6 +665,7 @@ def _asset(row: m.Asset) -> Asset:
             project_id=row.project_id,
             series_id=row.series_id,
             episode_id=row.episode_id,
+            character_id=row.character_id,
             scene_number=row.scene_number,
             shot_number=row.shot_number,
         ),
@@ -716,6 +706,7 @@ class SQLAlchemyAssetRepository:
             project_id=ownership.project_id,
             series_id=ownership.series_id,
             episode_id=ownership.episode_id,
+            character_id=ownership.character_id,
             scene_number=ownership.scene_number,
             shot_number=ownership.shot_number,
             provenance=(provenance or AssetProvenance()).model_dump(mode="json"),
@@ -741,6 +732,7 @@ class SQLAlchemyAssetRepository:
         project_id: str,
         series_id: str | None = None,
         episode_id: str | None = None,
+        character_id: str | None = None,
         asset_type: AssetType | None = None,
     ) -> list[Asset]:
         query = select(m.Asset).where(m.Asset.project_id == project_id)
@@ -748,6 +740,8 @@ class SQLAlchemyAssetRepository:
             query = query.where(m.Asset.series_id == series_id)
         if episode_id is not None:
             query = query.where(m.Asset.episode_id == episode_id)
+        if character_id is not None:
+            query = query.where(m.Asset.character_id == character_id)
         if asset_type is not None:
             query = query.where(m.Asset.type == asset_type.value)
         query = query.order_by(m.Asset.created_at)
@@ -774,3 +768,151 @@ class SQLAlchemyAssetRepository:
         if row is not None:
             await self._session.delete(row)
             await self._session.flush()
+
+
+def _character(row: m.Character) -> Character:
+    return Character(
+        id=row.id,
+        name=row.name,
+        role=row.role,
+        age=row.age,
+        description=row.description,
+        personality=row.personality,
+        goal=row.goal,
+        fear=row.fear,
+        flaw=row.flaw,
+        secret=row.secret,
+        character_dna=row.character_dna,
+        visual_identity_id=row.visual_identity_id,
+        voice_identity_id=row.voice_identity_id,
+        reference_pack=row.reference_pack,
+        identity_provenance=CharacterProvenance.model_validate(row.identity_provenance)
+        if row.identity_provenance
+        else CharacterProvenance(),
+        locked=row.locked,
+        version=row.version,
+        status=row.status,
+    )
+
+
+def _wardrobe_variant(row: m.CharacterWardrobeVariant) -> WardrobeVariant:
+    return WardrobeVariant(
+        id=row.id,
+        character_id=row.character_id,
+        label=row.label,
+        reference_asset_ids=row.reference_asset_ids,
+        description=row.description,
+    )
+
+
+def _physical_state_variant(row: m.CharacterPhysicalStateVariant) -> PhysicalStateVariant:
+    return PhysicalStateVariant(
+        id=row.id,
+        character_id=row.character_id,
+        label=row.label,
+        reference_asset_ids=row.reference_asset_ids,
+        description=row.description,
+    )
+
+
+class SQLAlchemyCharacterCastingRepository:
+    """See Module 05 - single-character identity CRUD/lock/version and
+    wardrobe/physical-state variants."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_character(self, character_id: str) -> Character | None:
+        row = await self._session.get(m.Character, character_id)
+        return _character(row) if row is not None else None
+
+    async def save_character(self, character: Character) -> Character:
+        row = await self._session.get(m.Character, character.id)
+        if row is None:
+            raise ValueError(f"character {character.id} not found")
+        row.name = character.name
+        row.role = character.role
+        row.age = character.age
+        row.description = character.description
+        row.personality = character.personality
+        row.goal = character.goal
+        row.fear = character.fear
+        row.flaw = character.flaw
+        row.secret = character.secret
+        row.character_dna = character.character_dna.model_dump(mode="json")
+        row.visual_identity_id = character.visual_identity_id
+        row.voice_identity_id = character.voice_identity_id
+        row.reference_pack = character.reference_pack
+        row.identity_provenance = character.identity_provenance.model_dump(mode="json")
+        row.locked = character.locked
+        row.version = character.version
+        row.status = character.status
+        await self._session.flush()
+        return _character(row)
+
+    async def set_lock(self, character_id: str, locked: bool) -> Character:
+        row = await self._session.get(m.Character, character_id)
+        if row is None:
+            raise ValueError(f"character {character_id} not found")
+        row.locked = locked
+        await self._session.flush()
+        return _character(row)
+
+    async def unlock_and_bump_version(self, character_id: str) -> Character:
+        row = await self._session.get(m.Character, character_id)
+        if row is None:
+            raise ValueError(f"character {character_id} not found")
+        row.locked = False
+        row.version += 1
+        await self._session.flush()
+        return _character(row)
+
+    async def create_wardrobe_variant(
+        self,
+        character_id: str,
+        label: str,
+        reference_asset_ids: list[str],
+        description: str = "",
+    ) -> WardrobeVariant:
+        row = m.CharacterWardrobeVariant(
+            character_id=character_id,
+            label=label,
+            reference_asset_ids=reference_asset_ids,
+            description=description,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _wardrobe_variant(row)
+
+    async def list_wardrobe_variants(self, character_id: str) -> list[WardrobeVariant]:
+        result = await self._session.execute(
+            select(m.CharacterWardrobeVariant)
+            .where(m.CharacterWardrobeVariant.character_id == character_id)
+            .order_by(m.CharacterWardrobeVariant.created_at)
+        )
+        return [_wardrobe_variant(row) for row in result.scalars()]
+
+    async def create_physical_state_variant(
+        self,
+        character_id: str,
+        label: str,
+        reference_asset_ids: list[str],
+        description: str = "",
+    ) -> PhysicalStateVariant:
+        row = m.CharacterPhysicalStateVariant(
+            character_id=character_id,
+            label=label,
+            reference_asset_ids=reference_asset_ids,
+            description=description,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _physical_state_variant(row)
+
+    async def list_physical_state_variants(self, character_id: str) -> list[PhysicalStateVariant]:
+        result = await self._session.execute(
+            select(m.CharacterPhysicalStateVariant)
+            .where(m.CharacterPhysicalStateVariant.character_id == character_id)
+            .order_by(m.CharacterPhysicalStateVariant.created_at)
+        )
+        return [_physical_state_variant(row) for row in result.scalars()]

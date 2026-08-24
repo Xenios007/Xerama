@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetStatus, AssetType
 from xerama.domain.brief import CreativeBrief
 from xerama.domain.canon import CanonEvent
-from xerama.domain.character import CharacterCast
+from xerama.domain.character import Character, CharacterCast, PhysicalStateVariant, WardrobeVariant
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan
@@ -220,6 +220,7 @@ class AssetRepository(Protocol):
         project_id: str,
         series_id: str | None = None,
         episode_id: str | None = None,
+        character_id: str | None = None,
         asset_type: AssetType | None = None,
     ) -> list[Asset]: ...
 
@@ -232,3 +233,42 @@ class AssetRepository(Protocol):
     ) -> Asset: ...
 
     async def delete(self, asset_id: str) -> None: ...
+
+
+class CharacterCastingRepository(Protocol):
+    """Single-character identity CRUD/lock/version + wardrobe/physical-state
+    variants - see Module 05. Distinct from `SeriesRepository.save_cast`/
+    `get_cast`, which handle the whole-cast bulk generation output."""
+
+    async def get_character(self, character_id: str) -> Character | None: ...
+
+    async def save_character(self, character: Character) -> Character:
+        """Persists every field of `character` over the existing row.
+        Raises `ValueError` if the character does not already exist."""
+        ...
+
+    async def set_lock(self, character_id: str, locked: bool) -> Character: ...
+
+    async def unlock_and_bump_version(self, character_id: str) -> Character:
+        """Explicit deliberate recast: unlocks and increments `version`."""
+        ...
+
+    async def create_wardrobe_variant(
+        self,
+        character_id: str,
+        label: str,
+        reference_asset_ids: list[str],
+        description: str = "",
+    ) -> WardrobeVariant: ...
+
+    async def list_wardrobe_variants(self, character_id: str) -> list[WardrobeVariant]: ...
+
+    async def create_physical_state_variant(
+        self,
+        character_id: str,
+        label: str,
+        reference_asset_ids: list[str],
+        description: str = "",
+    ) -> PhysicalStateVariant: ...
+
+    async def list_physical_state_variants(self, character_id: str) -> list[PhysicalStateVariant]: ...
