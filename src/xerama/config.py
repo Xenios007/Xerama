@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     ffmpeg_path: str = "ffmpeg"
     # Binary name/path for export validation (MODULE-048).
     ffprobe_path: str = "ffprobe"
+    # MODULE-055 - comma-separated allowed origins for the frontend studio
+    # shell. Defaults to the Vite dev server; production deployments
+    # override with their actual origin(s) - never "*" with credentials.
+    cors_allowed_origins: str = "http://localhost:5173"
 
     concept_model_a: str = ""
     concept_model_b: str = ""

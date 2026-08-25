@@ -79,3 +79,9 @@ storage/
 # Credentials/config
 .pypirc
 .streamlit/secrets.toml
+
+# Frontend (MODULE-055)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from xerama.api.middleware import correlation_id_middleware
 from xerama.api.routers import (
@@ -133,6 +134,16 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.middleware("http")(correlation_id_middleware)
+    settings = get_settings()
+    allowed_origins = [o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Correlation-ID"],
+    )
     app.include_router(health.router)
     app.include_router(projects.router)
     app.include_router(generation.router)

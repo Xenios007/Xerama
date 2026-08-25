@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-051/052/053/054 (Project/Generation/Asset/Job-Progress APIs)._
+_Last updated: 2026-08-25 - MODULE-055 (Frontend Architecture)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1410,6 +1410,56 @@ surface built across earlier modules, not new subsystems.
   migration needed - every addition is a new repository method or
   endpoint over already-existing tables.
 
+### MODULE-055 - Frontend Architecture
+
+- **Stack chosen and documented** (`frontend/README.md`) - React 19 +
+  TypeScript + Vite (a lean SPA build, not a full Next.js SSR framework -
+  this is an internal production studio, not a public/SEO-facing site) +
+  React Router v7 + TanStack Query v5 + Vitest/Testing Library/oxlint.
+  Matches "current stable TypeScript frontend stack" and the research
+  precedent (`research/WIND_COMIC_DEEP_DIVE.md` - a comparable production
+  tool built on React/TypeScript).
+- **New top-level `frontend/` directory** - a separate npm project, not
+  mixed into the Python `src/xerama` tree.
+- **Typed API client** (`frontend/src/api/client.ts` +
+  `frontend/src/api/types.ts`) - one `fetch` wrapper every page goes
+  through (`ApiError` carries the backend's `detail` message); hand-
+  maintained TypeScript types mirroring the Pydantic response models
+  actually consumed so far. Base URL is `VITE_API_BASE_URL`
+  (`.env.example`) - dev/prod configurable without a rebuild.
+- **Backend CORS** (`api/app.py`, `config.py:cors_allowed_origins`) -
+  `CORSMiddleware` added (there was none before this module), default
+  origin is the Vite dev server; "configure dev/prod API base and CORS
+  safely" - never `"*"` with credentials.
+- **State/query strategy** (`frontend/src/api/queries.ts`) - TanStack
+  Query hooks per resource (`useProjects`, `useProjectStatus`,
+  `useProjectObservability`, `useJobs`, ...); job/observability queries
+  poll every 5s per MODULE-054's "support polling first."
+- **Routing + design system** - `frontend/src/router.tsx`
+  (`createBrowserRouter`, route tree exported separately so tests build a
+  `MemoryRouter` from the identical routes) mounted under
+  `AppShell` (`components/layout/`) - nav for all five studio pages.
+  `components/ui/`: `Button`, `Card`, `LoadingSpinner`, `ErrorBanner`,
+  and `QueryState` (the one loading/error pattern every page wraps a
+  query result in, so pages don't each reinvent it).
+- **Two real pages ship with this module** (beyond the shell itself) -
+  `DashboardPage` (list/create projects - a working head start on
+  MODULE-056) and `ProjectDetailPage` (series/episode status +
+  observability/job counts, reading MODULE-051's `/status` and
+  MODULE-050's `/observability` endpoints). Story/Character/Production/
+  Review are placeholder routes explicitly naming their owning module
+  (057-060) - "pages must not call AI providers directly" holds
+  trivially since no page-specific business logic exists yet to violate
+  it.
+- Acceptance criterion met: "a maintainable studio shell can host modules
+  056-060" - verified by `npm run typecheck` (clean), `npm test` (7
+  Vitest tests: API client success/error/fallback/POST-body shape, nav
+  renders, placeholder page names its module, an API error surfaces
+  through the shared `ErrorBanner`), `npm run lint` (oxlint clean), and
+  `npm run build` (production bundle builds cleanly) - plus the full
+  Python suite staying green (509 tests, only the new CORS middleware
+  touched backend code).
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1435,7 +1485,8 @@ surface built across earlier modules, not new subsystems.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Frontend (MODULE-055-060), analytics/learning (MODULE-061-065),
+- Remaining frontend studio pages (MODULE-056-060 - the shell from
+  MODULE-055 is ready to host them), analytics/learning (MODULE-061-065),
   security/deployment/hardening (MODULE-066-070), testing/eval
   frameworks (MODULE-071-076), backup/migration/docs/release
   (MODULE-077-080).

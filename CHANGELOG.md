@@ -4,6 +4,25 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-055 - Frontend Architecture)
+
+- New `frontend/` npm project - React 19 + TypeScript + Vite + React
+  Router v7 + TanStack Query v5 + Vitest/Testing Library/oxlint (chosen
+  and documented in `frontend/README.md`).
+- Typed API client (`api/client.ts` + `api/types.ts`) + per-resource
+  TanStack Query hooks (`api/queries.ts`, polling for jobs/observability).
+- `AppShell` nav layout + `router.tsx` (route tree exported separately
+  for `MemoryRouter` tests) hosting `DashboardPage` (list/create
+  projects), `ProjectDetailPage` (status/observability), and placeholder
+  routes for Story/Character/Production/Review naming their owning
+  module (057-060).
+- Design system: `Button`/`Card`/`LoadingSpinner`/`ErrorBanner`/
+  `QueryState`.
+- Backend: `CORSMiddleware` + `Settings.cors_allowed_origins` (there was
+  no CORS configuration before this module).
+- 7 Vitest tests; `typecheck`/`lint`/`build` all clean; full Python suite
+  (509) unaffected.
+
 ### Added (MODULE-051 / MODULE-052 / MODULE-053 / MODULE-054 - Project, Generation, Asset, Job/Progress APIs)
 
 - `ProjectRepository.list_all`/`update`/`archive` + new
