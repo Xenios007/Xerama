@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-076 (Failure Simulation)._
+_Last updated: 2026-08-25 - MODULE-077 (Backup/Recovery)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -2384,6 +2384,37 @@ nothing else covered:
   green (679 passed + 2 skipped, up from 669 + 2). This completes the
   MODULE-071-076 testing-architecture cluster.
 
+### MODULE-077 - Backup / Recovery
+
+- **`src/xerama/backup.py`** (new, `python -m xerama.backup
+  backup|verify|restore`) - a consistent SQLite snapshot (via
+  `sqlite3.Connection.backup`, not a raw file copy - safe under
+  concurrent access, unlike `cp` on a live DB file, which can capture a
+  torn/mid-write page) plus a full copy of the local asset store, with
+  every file SHA-256-hashed into a `manifest.json`. `restore` re-verifies
+  every hash first and refuses to touch anything (no partial restore) if
+  even one file fails.
+- **Version lineage and configuration metadata preserved automatically** -
+  both already live inside the one SQLite file this backs up (every
+  `EpisodeRender` version - ADR-019/047's "never overwrite/delete" - and
+  the applied Alembic migration in `alembic_version`), so a full-file
+  backup needs no separate export step for either.
+- **Hosted strategy documented, not implemented** (`docs/DEPLOYMENT.md`
+  section 9) - a hosted PostgreSQL/object-storage deployment should use
+  that backend's own native backup tooling (`pg_dump`/`pg_basebackup`,
+  S3/GCS versioning) rather than this script, which raises immediately
+  if `DATABASE_URL` isn't a local `sqlite+aiosqlite:///` URL.
+- Acceptance criterion met: "a project can be restored to a usable
+  consistent state from documented backup artifacts" - verified
+  literally by `test_backup_delete_restore_integrity_round_trip`
+  (backup -> delete the live DB and asset store entirely -> restore ->
+  confirm the DB is queryable and every asset's bytes match, this
+  module's own "Verification" line as one continuous test) and by
+  actually running the CLI end-to-end by hand (`python -m xerama.backup
+  backup`/`verify`/`restore` against a real scratch DB+storage
+  directory, not just the underlying functions). 10 new tests; full
+  suite green (689 passed + 2 skipped, up from 679 + 2).
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2418,7 +2449,7 @@ nothing else covered:
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Backup/migration/docs/release (MODULE-077-080).
+- Migration strategy/docs/release-operations (MODULE-078-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
 - See `modules/README.md` for the full authoritative MODULE-001..080 queue.

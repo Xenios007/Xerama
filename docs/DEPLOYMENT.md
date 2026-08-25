@@ -221,7 +221,51 @@ boundary rather than a fix:
   `IntegrityError` (500), not silent corruption, but not yet a handled
   409/retry.
 
-## 9. Clean-environment smoke test
+## 9. Backup and recovery (MODULE-077)
+
+`python -m xerama.backup {backup|verify|restore}` - protects the SQLite
+DB and local asset store (Trial 01's persistence path - ADR-021/022)
+from local failure or operator error.
+
+```bash
+python -m xerama.backup backup --backup-dir ./backups
+# -> Backup created at ./backups/xerama-backup-<UTC timestamp>/
+
+python -m xerama.backup verify ./backups/xerama-backup-<timestamp>
+# -> Backup integrity check passed - every file matches its manifest hash.
+
+python -m xerama.backup restore ./backups/xerama-backup-<timestamp>
+```
+
+- **Consistency**: the DB copy uses SQLite's own backup API
+  (`sqlite3.Connection.backup`), not a raw file copy - safe even if the
+  API process has the DB open concurrently; a plain `cp` on a live
+  SQLite file can capture a torn/mid-write page.
+- **Integrity**: every backed-up file (the DB snapshot and every asset)
+  is SHA-256-hashed into a `manifest.json`; `verify`/`restore` recompute
+  and compare every hash - `restore` refuses to touch anything if even
+  one file fails verification, rather than partially restoring from a
+  corrupt backup.
+- **Version lineage and configuration**: both already live inside the
+  one SQLite file this backs up - every `EpisodeRender` version (never
+  overwritten - ADR-019/047) and the applied Alembic migration
+  (`alembic_version` table) - so a full-file backup preserves both
+  automatically, no separate export step needed.
+- **Scope**: local SQLite + filesystem storage only - `backup.py`
+  raises immediately (rather than silently doing the wrong thing) if
+  `DATABASE_URL` isn't a `sqlite+aiosqlite:///` URL.
+
+**Hosted path** (documented, not implemented here - matches section 7's
+"documented, not yet implemented" PostgreSQL/object-storage path): a
+hosted PostgreSQL deployment should use `pg_dump`/`pg_basebackup` (or
+the managed provider's native point-in-time-recovery/snapshot feature)
+instead of this script; a hosted object-storage asset store should rely
+on that store's own versioning/cross-region replication (S3 versioning,
+GCS object versioning, etc.) rather than a filesystem `copytree`. Both
+are standard, well-understood backup mechanisms for their respective
+systems - reinventing them here would only add risk.
+
+## 10. Clean-environment smoke test
 
 `scripts/smoke_test.sh` proves "a new machine can start Xerama from
 documented steps with no hidden local assumptions" (this module's own

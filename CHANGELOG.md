@@ -4,6 +4,21 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-077 - Backup/Recovery)
+
+- `python -m xerama.backup backup|verify|restore` - a consistent SQLite
+  snapshot (via the sqlite3 backup API, not a raw file copy) plus a
+  full asset-store copy, with a SHA-256 manifest; `restore` refuses to
+  touch anything if any file fails verification.
+- Version lineage and Alembic migration state preserved automatically
+  (both live inside the one SQLite file backed up).
+- Hosted strategy documented (`docs/DEPLOYMENT.md`) - pg_dump/object-
+  storage-native backups instead of this script for a hosted deployment.
+- 10 new tests including the module's own "backup -> delete -> restore
+  -> verify" bar run literally as one test; also verified by hand via
+  the real CLI. Full suite green (689 passed + 2 skipped, up from 679 +
+  2).
+
 ### Added (MODULE-076 - Failure Simulation)
 
 - `tests/test_failure_simulation.py` - one place the whole failure
