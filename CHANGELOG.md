@@ -4,6 +4,19 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-060 - Review/Approval Studio) - frontend (MODULE-055-060) complete
+
+- `AssetRepository.list_by_ownership`/`GET /assets` gain a `status`
+  filter (the one backend gap - "queue awaiting-review items"
+  project-wide).
+- `ReviewApprovalStudioPage` - pending-assets queue (expandable QC
+  evidence/repair recommendation, approve/reject-with-required-reason)
+  + episode publish approval (explicit per-version approve, MODULE-047).
+- 4 new Vitest tests (27 total) + 1 backend test; typecheck/lint/build
+  clean; Python suite 510.
+- **MODULE-055-060 (Frontend) complete**: shell + Dashboard/Story/
+  Character/Production/Review, all real and API-backed.
+
 ### Added (MODULE-059 - Production Studio)
 
 - No backend changes needed - existing storyboard/video/audio/job

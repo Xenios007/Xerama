@@ -292,6 +292,28 @@ export interface AcceptedOutputCost {
   cost_per_accepted_unit_usd: number | null;
 }
 
+export interface MediaQCAttempt {
+  id: string;
+  asset_id: string;
+  dimension: string;
+  status: QCStatus;
+  score: number;
+  evidence: Record<string, unknown>;
+  reasons: string[];
+  repair_recommendation: string;
+  created_at: string;
+}
+
+export interface EpisodeRender {
+  id: string;
+  episode_id: string;
+  version: number;
+  status: string;
+  render_asset_id: string;
+  parent_render_id: string | null;
+  source_script_version: number;
+}
+
 export interface CostSummaryResponse {
   image: AcceptedOutputCost;
   video: AcceptedOutputCost;

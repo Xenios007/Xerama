@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from xerama.api.deps import get_asset_service, get_media_qc_service
-from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetType
+from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetStatus, AssetType
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.services.asset_service import AssetService
 from xerama.services.media_qc_service import MediaQCService
@@ -21,6 +21,7 @@ async def list_assets(
     scene_number: int | None = None,
     shot_number: int | None = None,
     asset_type: AssetType | None = None,
+    status: AssetStatus | None = None,
     service: AssetService = Depends(get_asset_service),
 ) -> list[Asset]:
     return await service.list_by_ownership(
@@ -31,6 +32,7 @@ async def list_assets(
         scene_number=scene_number,
         shot_number=shot_number,
         asset_type=asset_type,
+        status=status,
     )
 
 

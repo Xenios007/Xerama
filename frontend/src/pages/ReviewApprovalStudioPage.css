@@ -1,0 +1,42 @@
+.xr-review__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--xr-color-border, #e5e7eb);
+}
+
+.xr-review__row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.xr-review__toggle {
+  background: none;
+  border: none;
+  color: var(--xr-color-accent, #4f46e5);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.xr-review__actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.xr-review__qc-list {
+  font-size: 0.85rem;
+  padding-left: 1rem;
+}
+
+.xr-review__recommendation {
+  font-size: 0.8rem;
+  color: var(--xr-color-muted, #6b7280);
+}
+
+.xr-review__episode-block {
+  margin-bottom: 0.75rem;
+}

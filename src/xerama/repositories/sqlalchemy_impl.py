@@ -1107,6 +1107,7 @@ class SQLAlchemyAssetRepository:
         scene_number: int | None = None,
         shot_number: int | None = None,
         asset_type: AssetType | None = None,
+        status: AssetStatus | None = None,
     ) -> list[Asset]:
         query = select(m.Asset).where(m.Asset.project_id == project_id)
         if series_id is not None:
@@ -1121,6 +1122,8 @@ class SQLAlchemyAssetRepository:
             query = query.where(m.Asset.shot_number == shot_number)
         if asset_type is not None:
             query = query.where(m.Asset.type == asset_type.value)
+        if status is not None:
+            query = query.where(m.Asset.status == status.value)
         query = query.order_by(m.Asset.created_at)
         result = await self._session.execute(query)
         return [_asset(row) for row in result.scalars()]

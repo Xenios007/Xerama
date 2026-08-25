@@ -111,6 +111,7 @@ class AssetService:
         scene_number: int | None = None,
         shot_number: int | None = None,
         asset_type: AssetType | None = None,
+        status: AssetStatus | None = None,
     ) -> list[Asset]:
         return await self._asset_repo.list_by_ownership(
             project_id,
@@ -120,6 +121,7 @@ class AssetService:
             scene_number=scene_number,
             shot_number=shot_number,
             asset_type=asset_type,
+            status=status,
         )
 
     async def accept(self, asset_id: str) -> Asset:

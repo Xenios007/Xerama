@@ -83,6 +83,17 @@ async def test_list_by_ownership_filters(session) -> None:
     assert len(only_video) == 1
     assert only_video[0].storage_path == "b.mp4"
 
+    await repo.set_status(all_for_project[0].id, AssetStatus.ACCEPTED)
+    await session.commit()
+
+    only_pending = await repo.list_by_ownership(project_id, status=AssetStatus.PENDING)
+    assert len(only_pending) == 1
+    assert only_pending[0].storage_path == "b.mp4"
+
+    only_accepted = await repo.list_by_ownership(project_id, status=AssetStatus.ACCEPTED)
+    assert len(only_accepted) == 1
+    assert only_accepted[0].storage_path == "a.png"
+
 
 @pytest.mark.asyncio
 async def test_set_status_accept_and_reject(session) -> None:

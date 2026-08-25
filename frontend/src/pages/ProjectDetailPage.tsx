@@ -59,6 +59,7 @@ export function ProjectDetailPage() {
             <Card title={status.data.project.name}>
               <p>{status.data.project.description || "No description."}</p>
               <p>Status: {status.data.project.status}</p>
+              {projectId && <Link to={`/review/${projectId}`}>Review &amp; approval queue</Link>}
             </Card>
             <div style={{ marginTop: "1rem" }}>
               {status.data.series.length === 0 ? (

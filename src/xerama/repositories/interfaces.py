@@ -369,7 +369,12 @@ class AssetRepository(Protocol):
         scene_number: int | None = None,
         shot_number: int | None = None,
         asset_type: AssetType | None = None,
-    ) -> list[Asset]: ...
+        status: AssetStatus | None = None,
+    ) -> list[Asset]:
+        """`status` filter added for MODULE-060 - "queue awaiting-review
+        items" (`status=pending`) without pulling every asset for a
+        project and filtering client-side."""
+        ...
 
     async def list_all(self) -> list[Asset]:
         """Every asset row - used for orphan/integrity scans."""

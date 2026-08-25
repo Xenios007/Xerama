@@ -18,10 +18,12 @@ import type {
   CreativeBrief,
   EpisodeGenerationResult,
   EpisodeRecord,
+  EpisodeRender,
   EpisodeShotPlan,
   GenerateSeriesResult,
   JobRecord,
   JudgeDecisionRecord,
+  MediaQCAttempt,
   ObservabilitySnapshot,
   PhysicalStateVariant,
   ProjectRecord,
@@ -427,5 +429,39 @@ export function useGenerateAudioTake(episodeId: string) {
       await api.post<ShotAudioProduction>(`/audio-productions/${production.id}/takes/${asset.id}/accept`);
     },
     onSuccess: () => invalidateEpisodeProduction(queryClient, episodeId),
+  });
+}
+
+export function usePendingAssets(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["assets", { projectId, status: "pending" }],
+    queryFn: () => api.get<Asset[]>(`/assets?project_id=${projectId}&status=pending`),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function useAssetQc(assetId: string | undefined) {
+  return useQuery({
+    queryKey: ["assets", assetId, "qc"],
+    queryFn: () => api.get<MediaQCAttempt[]>(`/assets/${assetId}/qc`),
+    enabled: Boolean(assetId),
+  });
+}
+
+export function useEpisodeRenders(episodeId: string | undefined) {
+  return useQuery({
+    queryKey: ["episodes", episodeId, "renders"],
+    queryFn: () => api.get<EpisodeRender[]>(`/episodes/${episodeId}/renders`),
+    enabled: Boolean(episodeId),
+  });
+}
+
+export function useApproveEpisodeRender() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (renderId: string) => api.post<EpisodeRender>(`/episode-renders/${renderId}/approve`),
+    onSuccess: (render) => {
+      void queryClient.invalidateQueries({ queryKey: ["episodes", render.episode_id, "renders"] });
+    },
   });
 }

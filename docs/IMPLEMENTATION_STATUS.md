@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-059 (Production Studio)._
+_Last updated: 2026-08-25 - MODULE-060 (Review/Approval Studio) - frontend (MODULE-055-060) complete._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1607,6 +1607,52 @@ surface built across earlier modules, not new subsystems.
   the right take id) - full suites green (Python 510 unaffected,
   frontend 23) with `typecheck`/`lint`/`build` all clean.
 
+### MODULE-060 - Review / Approval Studio (completes MODULE-055-060 frontend)
+
+- **`AssetRepository.list_by_ownership` gains a `status` filter**
+  (`AssetService`, `GET /assets?status=`) - the one genuine backend gap:
+  "queue WARN/BLOCK/awaiting-review items" needs `status=pending`
+  project-wide without pulling every asset and filtering client-side.
+  Additive/optional, every existing call site unaffected.
+- **`ReviewApprovalStudioPage`** (`/review/:projectId`, linked from
+  `ProjectDetailPage`) - two panels:
+  - **Awaiting review** - every `pending` asset for the project
+    (`GET /assets?status=pending`); each row expands to its full QC
+    attempt history (`GET /assets/{id}/qc`, MODULE-044) showing
+    dimension/status/score/reasons/repair-recommendation - "display QC
+    evidence/recommendations" reuses that ledger directly rather than a
+    new summary. Approve delegates to the existing generic accept
+    endpoint; reject requires a non-empty reason (the input is disabled
+    until one is typed) - "approve/reject/request-retake with reason";
+    a rejection is the existing "next generate call is the retry"
+    pattern already established everywhere else in this codebase, not a
+    new retake mechanism.
+  - **Episode publish approval** - every episode's `EpisodeRender`
+    version history (MODULE-047) with an explicit "Approve for publish"
+    button per non-approved version - "final episode publish approval
+    must be explicit and auditable" is satisfied structurally by
+    MODULE-047's versioning (every approval is a new, attributable state
+    transition on an immutable render row, never a silent default).
+- **Full comparison UI (take-vs-take side-by-side) is not built** - each
+  pending item's own QC history is inspectable, but there is no backend
+  endpoint that groups sibling takes of the same shot for a diff view;
+  documented as a gap rather than faked with a misleading placeholder.
+- Acceptance criterion met: "human intervention is focused on exceptions
+  instead of manually checking every pipeline step" - a reviewer sees
+  everything awaiting a decision and every episode ready to publish in
+  one screen, with reasons/evidence attached to every action - verified
+  by 4 new Vitest tests (queue + publish panel render, QC evidence
+  expands with the repair recommendation, reject is gated on a non-empty
+  reason, approve posts to the exact render id) plus 1 new backend test
+  (status filter round-trip) - full suites green (Python 510, frontend
+  27) with `typecheck`/`lint`/`build` all clean.
+- **MODULE-055-060 (Frontend) is now complete.** Studio shell + all five
+  pages (Dashboard, Story, Character, Production, Review) are real,
+  API-backed, and tested - 27 Vitest tests total across 7 files, zero
+  business logic duplicated client-side (every validation/generation/
+  approval decision is a backend call), `typecheck`/`lint`/`build` clean
+  throughout this entire module range.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1632,10 +1678,9 @@ surface built across earlier modules, not new subsystems.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- The final frontend studio page (MODULE-060 - the shell from
-  MODULE-055 is ready to host it), analytics/learning (MODULE-061-065),
-  security/deployment/hardening (MODULE-066-070), testing/eval
-  frameworks (MODULE-071-076), backup/migration/docs/release
+- Analytics/learning (MODULE-061-065), security/deployment/hardening
+  (MODULE-066-070), testing/eval frameworks (MODULE-071-076),
+  backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
