@@ -4,6 +4,18 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-056 - Project Dashboard)
+
+- `DashboardPage` - project cards (status badge, description, created
+  date, archive action), archived projects collapsed separately, create
+  flow clears/disables correctly.
+- `useArchiveProject`/`useGenerateSeries` query hooks.
+- `ProjectDetailPage` gains a "start a series" (`CreativeBrief`) form for
+  a project with no series yet, surfacing pipeline errors via the shared
+  `ApiError` pattern.
+- 4 new Vitest tests (11 total); typecheck/lint/build clean; Python
+  suite unaffected.
+
 ### Added (MODULE-055 - Frontend Architecture)
 
 - New `frontend/` npm project - React 19 + TypeScript + Vite + React

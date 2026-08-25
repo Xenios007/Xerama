@@ -1,7 +1,48 @@
+import { useState } from "react";
 import { useParams } from "react-router-dom";
+import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { QueryState } from "../components/ui/QueryState";
-import { useJobs, useProjectObservability, useProjectStatus } from "../api/queries";
+import { ApiError } from "../api/client";
+import { useGenerateSeries, useJobs, useProjectObservability, useProjectStatus } from "../api/queries";
+
+function StartSeriesForm({ projectId }: { projectId: string }) {
+  const generateSeries = useGenerateSeries(projectId);
+  const [genre, setGenre] = useState("thriller");
+  const [episodeCount, setEpisodeCount] = useState(3);
+
+  function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    generateSeries.mutate({ genre, episode_count: episodeCount, episode_duration_seconds: 75 });
+  }
+
+  return (
+    <Card title="Start a series">
+      <form onSubmit={handleSubmit} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <input value={genre} onChange={(e) => setGenre(e.target.value)} aria-label="Genre" placeholder="Genre" />
+        <input
+          type="number"
+          min={1}
+          max={100}
+          value={episodeCount}
+          onChange={(e) => setEpisodeCount(Number(e.target.value))}
+          aria-label="Episode count"
+          style={{ width: "4rem" }}
+        />
+        <Button type="submit" disabled={generateSeries.isPending}>
+          {generateSeries.isPending ? "Generating…" : "Generate series"}
+        </Button>
+      </form>
+      {generateSeries.isError && (
+        <p style={{ color: "var(--xr-color-danger, #dc2626)" }}>
+          {generateSeries.error instanceof ApiError
+            ? generateSeries.error.detail
+            : "Series generation failed."}
+        </p>
+      )}
+    </Card>
+  );
+}
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -20,11 +61,11 @@ export function ProjectDetailPage() {
               <p>Status: {status.data.project.status}</p>
             </Card>
             <div style={{ marginTop: "1rem" }}>
-              <Card title="Series">
-                {status.data.series.length === 0 ? (
-                  <p>No series generated yet.</p>
-                ) : (
-                  status.data.series.map((series) => (
+              {status.data.series.length === 0 ? (
+                projectId && <StartSeriesForm projectId={projectId} />
+              ) : (
+                <Card title="Series">
+                  {status.data.series.map((series) => (
                     <div key={series.id} style={{ marginBottom: "0.75rem" }}>
                       <strong>{series.title}</strong> - {series.status}
                       <ul>
@@ -37,9 +78,9 @@ export function ProjectDetailPage() {
                         ))}
                       </ul>
                     </div>
-                  ))
-                )}
-              </Card>
+                  ))}
+                </Card>
+              )}
             </div>
           </>
         )}

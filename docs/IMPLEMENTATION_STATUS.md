@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-055 (Frontend Architecture)._
+_Last updated: 2026-08-25 - MODULE-056 (Project Dashboard)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1460,6 +1460,39 @@ surface built across earlier modules, not new subsystems.
   Python suite staying green (509 tests, only the new CORS middleware
   touched backend code).
 
+### MODULE-056 - Project Dashboard
+
+- **Project cards** (`DashboardPage.tsx`) - active projects render as
+  `Card`s (name/link, status badge, description, created date, an
+  Archive action); archived projects collapse into a `<details>` summary
+  rather than cluttering the primary grid.
+- **Create flow** - the form from MODULE-055 kept, now clearing on
+  success and disabled while empty/pending.
+- **Archive** - `useArchiveProject` (`POST /projects/{id}/archive`,
+  MODULE-051) invalidates both the list and the detail-page query.
+- **"Create brief flow"** (`ProjectDetailPage.tsx:StartSeriesForm`) - a
+  project with no series yet shows a genre/episode-count form that calls
+  `POST /projects/{id}/generate-series` (the `CreativeBrief` the backend
+  needs) - surfaces the synchronous pipeline's 502
+  `XeramaGenerationError` through the shared `ApiError`/error-message
+  pattern rather than a raw fetch failure.
+- **Empty/loading/error states** - `QueryState` (MODULE-055) covers all
+  three uniformly; empty state is an explicit "No projects yet" message,
+  not a blank grid.
+- **Navigate into a project** - project name/card links to
+  `/projects/{id}` (`ProjectDetailPage`, already built in MODULE-055).
+- **No duplicated backend validation** - the create/brief forms only
+  enforce trivial UX hints (non-empty name, `type="number"` bounds on
+  episode count); every real validation error surfaces from the backend
+  response's `detail` field through `ApiError`.
+- Acceptance criterion met: "a user can create and reopen a persisted
+  Xerama project from the UI" - verified by 4 new Vitest tests (project
+  card + status badge + link render, archived projects collapse
+  separately, create-then-refetch flow with the exact POST body
+  asserted, start-series form appears for a series-less project) plus
+  `typecheck`/`lint`/`build` all clean and the full Python suite
+  unaffected (509, no backend changes this module).
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1485,7 +1518,7 @@ surface built across earlier modules, not new subsystems.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Remaining frontend studio pages (MODULE-056-060 - the shell from
+- Remaining frontend studio pages (MODULE-057-060 - the shell from
   MODULE-055 is ready to host them), analytics/learning (MODULE-061-065),
   security/deployment/hardening (MODULE-066-070), testing/eval
   frameworks (MODULE-071-076), backup/migration/docs/release

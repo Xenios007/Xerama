@@ -8,6 +8,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type {
   CostSummaryResponse,
+  CreativeBrief,
+  GenerateSeriesResult,
   JobRecord,
   ObservabilitySnapshot,
   ProjectRecord,
@@ -79,6 +81,30 @@ export function useCreateProject() {
       api.post<ProjectRecord>("/projects", payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+    },
+  });
+}
+
+export function useArchiveProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: string) => api.post<ProjectRecord>(`/projects/${projectId}/archive`),
+    onSuccess: (_data, projectId) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) });
+    },
+  });
+}
+
+export function useGenerateSeries(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (brief: CreativeBrief) =>
+      api.post<GenerateSeriesResult>(`/projects/${projectId}/generate-series`, brief),
+    onSuccess: () => {
+      if (projectId) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.projectStatus(projectId) });
+      }
     },
   });
 }

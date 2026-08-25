@@ -34,6 +34,20 @@ export interface ProjectStatusResponse {
   series: SeriesStatusSummary[];
 }
 
+export interface CreativeBrief {
+  genre: string;
+  premise?: string;
+  target_audience?: string;
+  episode_count?: number;
+  episode_duration_seconds?: number;
+  tone?: string;
+}
+
+export interface GenerateSeriesResult {
+  series_id: string;
+  episode1_id: string;
+}
+
 export interface SeriesRecord {
   id: string;
   project_id: string;
