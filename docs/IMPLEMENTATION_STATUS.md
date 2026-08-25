@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-049 (Production Cost Engine)._
+_Last updated: 2026-08-25 - MODULE-050 (Production Observability)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1300,6 +1300,56 @@ and 048 explicitly reuses 046's render rather than a second encode path
   green (471 -> 483) with unchanged behavior for every existing call
   site.
 
+### MODULE-050 - Production Observability
+
+- **`xerama/observability/logging.py`** (new top-level package, parallel
+  to `domain`/`pipeline`/`services`/... - a cross-cutting utility, same
+  precedent as top-level `config.py`) - a `contextvars.ContextVar`-backed
+  correlation ID, a `CorrelationIdFilter` that injects it into every
+  `LogRecord`, and a `JsonLogFormatter` producing structured JSON
+  (`timestamp`/`level`/`logger`/`message`/`correlation_id` plus whatever
+  extra fields a caller passes via `logging.*(..., extra=...)`). Only
+  that fixed field set is ever emitted - "do not expose secrets or full
+  private prompts by default" holds by construction, not a redaction
+  pass over free text (verified directly: no `AIGateway`/provider log
+  call anywhere in this codebase passes prompt/payload content, only
+  role/model/kind/attempt).
+- **Correlation propagation** - `api/middleware.py:correlation_id_middleware`
+  reads an incoming `X-Correlation-ID` header (or generates one) for the
+  duration of each HTTP request and echoes it back in the response;
+  `worker/job_worker.py:JobWorker._process` binds the correlation ID to
+  the job's own id for the duration of handling it - every log line
+  several calls deep during a request or a job carries the same ID
+  without threading it through every function signature.
+- **`JobRecord` gap-fill** - `created_at`/`started_at`/`finished_at`
+  already existed on the `generation_jobs` table but were never surfaced
+  on the domain `JobRecord`/repository mapping until stage-duration
+  computation needed them (no migration needed - already-persisted
+  columns). New `JobRepository.list_by_project`.
+- **`ObservabilityService`** (`services/observability_service.py`) -
+  deliberately reads only already-persisted data, no new tracking system:
+  `queue_depth` from `JobRepository.list_queued` (MODULE-041),
+  `stage_durations` (`finished_at - started_at`, averaged per stage) from
+  `list_by_project`, `provider_reliability` (attempt/failure/retry counts
+  per provider) from `CostRecordService.list_by_project` (MODULE-049's
+  ledger, reused rather than a second failure-tracking mechanism).
+- **API** - `GET /health` (liveness, no DB dependency),
+  `GET /health/ready` (`SELECT 1` - fails closed with 503 on any DB
+  error, message limited to the exception type so it never leaks
+  connection strings/credentials), `GET /projects/{id}/observability`
+  (queue depth + stage durations + provider reliability in one call -
+  "an operator can determine where and why a production is stuck").
+- Acceptance criterion met: every request and every job has a traceable
+  correlation ID in structured, parseable logs; an operator can see queue
+  depth, average time-per-stage, and which provider is failing/retrying
+  most without reading raw log files - verified by 9 unit tests
+  (correlation id lifecycle, JSON formatter shape, no-prompt-leakage,
+  queue depth, stage-duration averaging with an in-flight job correctly
+  excluded, provider reliability counting) plus 3 API tests
+  (health/readiness, correlation-id echo/generation, observability
+  snapshot shape) and the full existing suite staying green (483 -> 495)
+  with unchanged behavior for every existing call site.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1325,7 +1375,7 @@ and 048 explicitly reuses 046's render rather than a second encode path
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Production observability (MODULE-050), remaining APIs/frontend
+- Remaining APIs/frontend
   (MODULE-051-060), analytics/learning (MODULE-061-065), security/
   deployment/hardening (MODULE-066-070), testing/eval frameworks
   (MODULE-071-076), backup/migration/docs/release (MODULE-077-080).

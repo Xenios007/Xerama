@@ -47,6 +47,7 @@ from xerama.services.audio_production_service import AudioProductionService
 from xerama.services.character_casting_service import CharacterCastingService
 from xerama.services.cost_service import CostRecordService
 from xerama.services.export_service import VerticalExportService
+from xerama.services.observability_service import ObservabilityService
 from xerama.services.media_qc_service import MediaQCService
 from xerama.services.music_cue_service import MusicCueService
 from xerama.services.retake_service import AutomaticRetakeService
@@ -106,6 +107,13 @@ def get_retake_service() -> AutomaticRetakeService:
 
 def get_cost_service(session: AsyncSession = Depends(get_session)) -> CostRecordService:
     return CostRecordService(repo=SQLAlchemyCostRecordRepository(session))
+
+
+def get_observability_service(
+    session: AsyncSession = Depends(get_session),
+    cost_service: CostRecordService = Depends(get_cost_service),
+) -> ObservabilityService:
+    return ObservabilityService(job_repo=SQLAlchemyJobRepository(session), cost_service=cost_service)
 
 
 def get_media_qc_provider(request: Request) -> MediaQCProvider:

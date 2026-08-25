@@ -630,6 +630,9 @@ def _job_record(row: m.GenerationJob) -> JobRecord:
         max_attempts=row.max_attempts,
         lease_owner=row.lease_owner,
         result_asset_ids=row.result_asset_ids,
+        created_at=row.created_at,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
     )
 
 
@@ -683,6 +686,14 @@ class SQLAlchemyJobRepository:
     async def get(self, job_id: str) -> JobRecord | None:
         row = await self._session.get(m.GenerationJob, job_id)
         return _job_record(row) if row is not None else None
+
+    async def list_by_project(self, project_id: str) -> list[JobRecord]:
+        result = await self._session.execute(
+            select(m.GenerationJob)
+            .where(m.GenerationJob.project_id == project_id)
+            .order_by(m.GenerationJob.created_at.desc())
+        )
+        return [_job_record(row) for row in result.scalars()]
 
     # --- Job-queue methods (MODULE-041) ---
 

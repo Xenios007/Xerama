@@ -22,6 +22,7 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from xerama.domain.enums import JobStage
+from xerama.observability.logging import reset_correlation_id, set_correlation_id
 from xerama.providers.errors import ProviderError
 from xerama.repositories.interfaces import JobRecord, JobRepository
 
@@ -66,25 +67,32 @@ class JobWorker:
         return True
 
     async def _process(self, job: JobRecord) -> None:
-        handler = self._handlers.get(job.stage)
-        if handler is None:
-            logger.warning("no handler registered for stage=%s job=%s", job.stage.value, job.id)
-            await self._job_repo.fail_job_attempt(
-                job.id, f"no handler registered for stage {job.stage.value}", retriable=False
-            )
-            return
+        # MODULE-050 - every log line emitted while this job is being
+        # processed (by this handler or anything it calls) carries the
+        # job's id as its correlation ID automatically.
+        token = set_correlation_id(job.id)
         try:
-            result_asset_ids = await handler(job)
-        except ProviderError as exc:
-            logger.warning(
-                "job %s failed (provider error, retriable=%s): %s", job.id, exc.retriable, exc.message
-            )
-            await self._job_repo.fail_job_attempt(job.id, exc.message, retriable=exc.retriable)
-        except Exception as exc:  # noqa: BLE001 - dead-letter, never retry an unclassified bug blindly
-            logger.exception("job %s failed with an unexpected error", job.id)
-            await self._job_repo.fail_job_attempt(job.id, str(exc), retriable=False)
-        else:
-            await self._job_repo.succeed_job(job.id, result_asset_ids)
+            handler = self._handlers.get(job.stage)
+            if handler is None:
+                logger.warning("no handler registered for stage=%s job=%s", job.stage.value, job.id)
+                await self._job_repo.fail_job_attempt(
+                    job.id, f"no handler registered for stage {job.stage.value}", retriable=False
+                )
+                return
+            try:
+                result_asset_ids = await handler(job)
+            except ProviderError as exc:
+                logger.warning(
+                    "job %s failed (provider error, retriable=%s): %s", job.id, exc.retriable, exc.message
+                )
+                await self._job_repo.fail_job_attempt(job.id, exc.message, retriable=exc.retriable)
+            except Exception as exc:  # noqa: BLE001 - dead-letter, never retry an unclassified bug blindly
+                logger.exception("job %s failed with an unexpected error", job.id)
+                await self._job_repo.fail_job_attempt(job.id, str(exc), retriable=False)
+            else:
+                await self._job_repo.succeed_job(job.id, result_asset_ids)
+        finally:
+            reset_correlation_id(token)
 
     async def run_forever(self, stop_event: asyncio.Event | None = None) -> None:
         """Runs `concurrency` claim/process lanes until `stop_event` is set

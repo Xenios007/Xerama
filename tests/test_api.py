@@ -1134,3 +1134,40 @@ async def test_project_cost_summary_reflects_accepted_outputs(client: httpx.Asyn
     assert summary.status_code == 200
     body = summary.json()
     assert body["image"]["accepted_quantity"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_health_and_readiness_endpoints(client: httpx.AsyncClient) -> None:
+    health = await client.get("/health")
+    assert health.status_code == 200
+    assert health.json() == {"status": "ok"}
+
+    ready = await client.get("/health/ready")
+    assert ready.status_code == 200
+    assert ready.json() == {"status": "ready"}
+
+
+@pytest.mark.asyncio
+async def test_correlation_id_is_echoed_and_generated(client: httpx.AsyncClient) -> None:
+    with_header = await client.get("/health", headers={"X-Correlation-ID": "req-123"})
+    assert with_header.headers["X-Correlation-ID"] == "req-123"
+
+    without_header = await client.get("/health")
+    assert without_header.headers["X-Correlation-ID"]  # generated, non-empty
+
+
+@pytest.mark.asyncio
+async def test_project_observability_snapshot(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+
+    snapshot = await client.get(f"/projects/{project_id}/observability")
+    assert snapshot.status_code == 200
+    body = snapshot.json()
+    assert "queue_depth" in body
+    assert "stage_durations" in body
+    assert "provider_reliability" in body

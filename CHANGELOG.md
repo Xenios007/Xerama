@@ -4,6 +4,23 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-050 - Production Observability)
+
+- `xerama/observability/logging.py` - contextvar-backed correlation ID,
+  `CorrelationIdFilter`, `JsonLogFormatter` (structured JSON logs, fixed
+  field set - never prompt/payload content).
+- `api/middleware.py:correlation_id_middleware` (per-request) +
+  `JobWorker._process` binding (per-job) propagate the correlation ID
+  automatically through everything each one calls.
+- `JobRecord` gains `created_at`/`started_at`/`finished_at` (already on
+  the DB row, just never surfaced) + new `JobRepository.list_by_project`.
+- `ObservabilityService` - `queue_depth`/`stage_durations`/
+  `provider_reliability`, all read from already-persisted MODULE-041 job
+  and MODULE-049 cost data (no new tracking system).
+- New API: `GET /health`, `GET /health/ready`,
+  `GET /projects/{id}/observability`.
+- 9 new unit tests + 3 API tests; full suite (495) green.
+
 ### Added (MODULE-049 - Production Cost Engine)
 
 - `CostRecord` (`domain/cost.py`) - append-only per-attempt cost ledger

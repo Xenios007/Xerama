@@ -92,6 +92,11 @@ class JobRecord(BaseModel):
     max_attempts: int = 3
     lease_owner: str | None = None
     result_asset_ids: list[str] = Field(default_factory=list)
+    # MODULE-050 - already existed on the DB row, just never surfaced in
+    # the domain model until observability needed to compute durations.
+    created_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
 
 
 class ProjectRepository(Protocol):
@@ -210,6 +215,12 @@ class JobRepository(Protocol):
     async def fail(self, job_id: str, error: str) -> None: ...
 
     async def get(self, job_id: str) -> JobRecord | None: ...
+
+    async def list_by_project(self, project_id: str) -> list[JobRecord]:
+        """See MODULE-050 - every job (both the synchronous JobRunner path
+        and the MODULE-041 queue path) ever created for this project,
+        newest first."""
+        ...
 
     # --- Job-queue methods (MODULE-041) - additive, coexist with the
     # synchronous create/start/succeed/fail path above used by JobRunner.

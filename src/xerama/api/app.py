@@ -1,6 +1,5 @@
 """FastAPI application factory. See README.md "First end-to-end test"."""
 
-import logging
 import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -8,6 +7,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI
 
+from xerama.api.middleware import correlation_id_middleware
 from xerama.api.routers import (
     assembly,
     assets,
@@ -16,6 +16,7 @@ from xerama.api.routers import (
     costs,
     episodes,
     generation,
+    health,
     inspect,
     jobs,
     music_cues,
@@ -30,6 +31,7 @@ from xerama.api.routers import (
 )
 from xerama.config import ModelRoleRegistry, Settings, get_settings
 from xerama.db.base import create_all, make_engine, make_session_factory
+from xerama.observability.logging import configure_structured_logging
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.providers.fake_assembler import FakeAssembler
 from xerama.providers.fake_frame_extractor import FakeFrameExtractor
@@ -49,7 +51,7 @@ from xerama.services.media_router import MediaProviderRouter
 
 
 def _configure_logging(settings: Settings) -> None:
-    logging.basicConfig(level=settings.log_level)
+    configure_structured_logging(settings.log_level)
 
 
 @asynccontextmanager
@@ -130,6 +132,8 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+    app.middleware("http")(correlation_id_middleware)
+    app.include_router(health.router)
     app.include_router(projects.router)
     app.include_router(generation.router)
     # jobs.router must be registered before inspect.router - inspect.py's
