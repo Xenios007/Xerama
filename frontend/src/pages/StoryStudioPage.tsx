@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { QueryState } from "../components/ui/QueryState";
@@ -98,7 +98,8 @@ function EpisodesPanel({ projectId, seriesId }: { projectId: string; seriesId: s
           <ul className="xr-story__episode-list">
             {episodes.data.map((episode) => (
               <li key={episode.id}>
-                Episode {episode.episode_number}: {episode.status} (v{episode.version})
+                <Link to={`/production/${episode.id}`}>Episode {episode.episode_number}</Link>:{" "}
+                {episode.status} (v{episode.version})
               </li>
             ))}
           </ul>

@@ -4,6 +4,18 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-059 - Production Studio)
+
+- No backend changes needed - existing storyboard/video/audio/job
+  endpoints covered everything.
+- `ProductionStudioPage` - shot grid joining the shot plan against
+  storyboard/video/audio production status by (scene, shot); per-medium
+  generate buttons chain create/generate/accept in one click; video
+  generation gated on storyboard approval; All/Waiting/Complete filters;
+  a recent-jobs panel.
+- 5 new Vitest tests (23 total); typecheck/lint/build clean; Python
+  suite unaffected (510).
+
 ### Added (MODULE-058 - Character Studio)
 
 - No backend changes needed - Module 05/MODULE-034/Module 04 already

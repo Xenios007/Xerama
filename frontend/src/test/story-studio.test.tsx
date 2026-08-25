@@ -102,7 +102,8 @@ describe("Story Studio (MODULE-057)", () => {
     await waitFor(() => expect(screen.getByText(/approved "B title"/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText(/Version 1 - draft/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText(/Episode 1: canon_committed/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("link", { name: /Episode 1/ })).toBeInTheDocument());
+    expect(screen.getByText(/canon_committed/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText(/Lena is alive/)).toBeInTheDocument());
   });
 

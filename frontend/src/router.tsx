@@ -5,6 +5,7 @@ import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { StoryStudioPage } from "./pages/StoryStudioPage";
 import { CharacterStudioPage } from "./pages/CharacterStudioPage";
 import { CharacterDetailPage } from "./pages/CharacterDetailPage";
+import { ProductionStudioPage } from "./pages/ProductionStudioPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 
 // Exported separately from the router itself so tests can build a
@@ -39,8 +40,14 @@ export const routes: RouteObject[] = [
       { path: "characters/:seriesId/:characterId", element: <CharacterDetailPage /> },
       {
         path: "production",
-        element: <PlaceholderPage title="Production Studio" module="MODULE-059" />,
+        element: (
+          <PlaceholderPage
+            title="Production Studio"
+            module="MODULE-059 - open an episode from the Story Studio to supervise its shots"
+          />
+        ),
       },
+      { path: "production/:episodeId", element: <ProductionStudioPage /> },
       {
         path: "review",
         element: <PlaceholderPage title="Review & Approval Studio" module="MODULE-060" />,

@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-058 (Character Studio)._
+_Last updated: 2026-08-25 - MODULE-059 (Production Studio)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1569,6 +1569,44 @@ surface built across earlier modules, not new subsystems.
   unlock action) - full suites green (Python 510 unaffected, frontend
   18) with `typecheck`/`lint`/`build` all clean.
 
+### MODULE-059 - Production Studio
+
+- **No backend changes needed** - Module 06 (storyboard/keyframe),
+  MODULE-032 (video take), MODULE-034/035 (audio take), and MODULE-054
+  (job listing) endpoints already covered every action this page needs.
+- **`ProductionStudioPage`** (`/production/:episodeId`, linked from each
+  episode in Story Studio) - a shot grid built by joining the approved
+  shot plan (`GET /episodes/{id}/shots`) against storyboards/video-
+  productions/audio-productions by `(scene_number, shot_number)`. Each
+  row shows a status badge per applicable medium (not started/draft/
+  approved - audio only shown for `tts_lipsync`/`hybrid` shots, since
+  `native` dialogue is already embedded in the video take per MODULE-046)
+  and a "Generate ―" button per medium that chains
+  get-or-create-production -> generate -> accept in one click
+  (`useGenerateKeyframe`/`useGenerateVideoTake`/`useGenerateAudioTake`).
+  Video generation is disabled until the storyboard is approved,
+  mirroring the backend's own `ContinuityOrderingError`-adjacent
+  dependency (a keyframe is the video take's `first_frame` input).
+- **Filters** - All / Waiting / Complete (client-side, computed from the
+  joined status - "complete" means every applicable medium is
+  `approved`). Finer-grained "failed/warn" filtering is not built: the
+  shot grid works from production-record `status` (draft/approved) and
+  has no per-take rejection-reason or QC-verdict feed at this level
+  without an extra request per take, which was judged not worth the
+  N+1 query cost for a first pass - documented as a gap, not silently
+  dropped.
+- **Provider/model + progress** - a "Recent jobs" panel reuses
+  `useJobs` (MODULE-054) to show stage/status/provider/model/error for
+  the project (episode-level filtering isn't possible - documented
+  MODULE-052/054 schema limitation, same as Story/Dashboard).
+- Acceptance criterion met: "a user can supervise an episode from shots
+  to accepted media in one screen" - verified by 5 new Vitest tests (grid
+  renders with not-started badges, video generation gated on storyboard
+  approval, approved status flows through, filters narrow the list
+  correctly, generating a keyframe chains create/generate/accept with
+  the right take id) - full suites green (Python 510 unaffected,
+  frontend 23) with `typecheck`/`lint`/`build` all clean.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1594,8 +1632,8 @@ surface built across earlier modules, not new subsystems.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Remaining frontend studio pages (MODULE-059-060 - the shell from
-  MODULE-055 is ready to host them), analytics/learning (MODULE-061-065),
+- The final frontend studio page (MODULE-060 - the shell from
+  MODULE-055 is ready to host it), analytics/learning (MODULE-061-065),
   security/deployment/hardening (MODULE-066-070), testing/eval
   frameworks (MODULE-071-076), backup/migration/docs/release
   (MODULE-077-080).

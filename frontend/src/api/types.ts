@@ -176,6 +176,58 @@ export interface WardrobeVariant {
 
 export type PhysicalStateVariant = WardrobeVariant;
 
+export type AudioMode = "native" | "tts_lipsync" | "hybrid";
+
+export interface Shot {
+  shot_number: number;
+  scene_number: number;
+  narrative_function: string;
+  character_ids: string[];
+  dialogue: string;
+  duration_seconds: number;
+  audio_mode: AudioMode;
+  continuity_group: string | null;
+}
+
+export interface Scene {
+  scene_number: number;
+  location: string;
+  shots: Shot[];
+}
+
+export interface EpisodeShotPlan {
+  episode_number: number;
+  scenes: Scene[];
+}
+
+export interface Storyboard {
+  id: string;
+  episode_id: string;
+  scene_number: number;
+  shot_number: number;
+  status: string;
+  approved_keyframe_asset_id: string | null;
+}
+
+export interface ShotVideoProduction {
+  id: string;
+  episode_id: string;
+  scene_number: number;
+  shot_number: number;
+  status: string;
+  approved_take_asset_id: string | null;
+}
+
+export interface ShotAudioProduction {
+  id: string;
+  episode_id: string;
+  scene_number: number;
+  shot_number: number;
+  audio_mode: string;
+  status: string;
+  approved_take_asset_id: string | null;
+}
+
 export interface VoiceProfile {
   id: string;
   character_id: string;

@@ -18,6 +18,7 @@ import type {
   CreativeBrief,
   EpisodeGenerationResult,
   EpisodeRecord,
+  EpisodeShotPlan,
   GenerateSeriesResult,
   JobRecord,
   JudgeDecisionRecord,
@@ -29,6 +30,9 @@ import type {
   SeasonPlanRecord,
   SeriesBible,
   SeriesRecord,
+  ShotAudioProduction,
+  ShotVideoProduction,
+  Storyboard,
   VoiceProfile,
   WardrobeVariant,
 } from "./types";
@@ -325,5 +329,103 @@ export function useRejectAsset() {
     mutationFn: ({ assetId, reason }: { assetId: string; reason: string }) =>
       api.post<Asset>(`/assets/${assetId}/reject?reason=${encodeURIComponent(reason)}`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["assets"] }),
+  });
+}
+
+export function useEpisode(episodeId: string | undefined) {
+  return useQuery({
+    queryKey: ["episodes", episodeId],
+    queryFn: () => api.get<EpisodeRecord>(`/episodes/${episodeId}`),
+    enabled: Boolean(episodeId),
+  });
+}
+
+export function useEpisodeShotPlan(episodeId: string | undefined) {
+  return useQuery({
+    queryKey: ["episodes", episodeId, "shots"],
+    queryFn: () => api.get<EpisodeShotPlan>(`/episodes/${episodeId}/shots`),
+    enabled: Boolean(episodeId),
+  });
+}
+
+export function useStoryboards(episodeId: string | undefined) {
+  return useQuery({
+    queryKey: ["episodes", episodeId, "storyboards"],
+    queryFn: () => api.get<Storyboard[]>(`/episodes/${episodeId}/storyboards`),
+    enabled: Boolean(episodeId),
+  });
+}
+
+export function useVideoProductions(episodeId: string | undefined) {
+  return useQuery({
+    queryKey: ["episodes", episodeId, "video-productions"],
+    queryFn: () => api.get<ShotVideoProduction[]>(`/episodes/${episodeId}/video-productions`),
+    enabled: Boolean(episodeId),
+  });
+}
+
+export function useAudioProductions(episodeId: string | undefined) {
+  return useQuery({
+    queryKey: ["episodes", episodeId, "audio-productions"],
+    queryFn: () => api.get<ShotAudioProduction[]>(`/episodes/${episodeId}/audio-productions`),
+    enabled: Boolean(episodeId),
+  });
+}
+
+function invalidateEpisodeProduction(queryClient: ReturnType<typeof useQueryClient>, episodeId: string) {
+  void queryClient.invalidateQueries({ queryKey: ["episodes", episodeId, "storyboards"] });
+  void queryClient.invalidateQueries({ queryKey: ["episodes", episodeId, "video-productions"] });
+  void queryClient.invalidateQueries({ queryKey: ["episodes", episodeId, "audio-productions"] });
+}
+
+export function useGenerateKeyframe(episodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ sceneNumber, shotNumber }: { sceneNumber: number; shotNumber: number }) => {
+      const storyboard = await api.post<Storyboard>(
+        `/episodes/${episodeId}/scenes/${sceneNumber}/shots/${shotNumber}/storyboard`,
+      );
+      const asset = await api.post<Asset>(`/storyboards/${storyboard.id}/keyframes/generate`);
+      await api.post<Storyboard>(`/storyboards/${storyboard.id}/keyframes/${asset.id}/accept`);
+    },
+    onSuccess: () => invalidateEpisodeProduction(queryClient, episodeId),
+  });
+}
+
+export function useGenerateVideoTake(episodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ sceneNumber, shotNumber }: { sceneNumber: number; shotNumber: number }) => {
+      const production = await api.post<ShotVideoProduction>(
+        `/episodes/${episodeId}/scenes/${sceneNumber}/shots/${shotNumber}/video-production`,
+      );
+      const asset = await api.post<Asset>(`/video-productions/${production.id}/takes/generate`);
+      await api.post<ShotVideoProduction>(`/video-productions/${production.id}/takes/${asset.id}/accept`);
+    },
+    onSuccess: () => invalidateEpisodeProduction(queryClient, episodeId),
+  });
+}
+
+export function useGenerateAudioTake(episodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      sceneNumber,
+      shotNumber,
+      characterId,
+    }: {
+      sceneNumber: number;
+      shotNumber: number;
+      characterId: string;
+    }) => {
+      const production = await api.post<ShotAudioProduction>(
+        `/episodes/${episodeId}/scenes/${sceneNumber}/shots/${shotNumber}/audio-production`,
+      );
+      const asset = await api.post<Asset>(`/audio-productions/${production.id}/takes/generate`, {
+        character_id: characterId,
+      });
+      await api.post<ShotAudioProduction>(`/audio-productions/${production.id}/takes/${asset.id}/accept`);
+    },
+    onSuccess: () => invalidateEpisodeProduction(queryClient, episodeId),
   });
 }
