@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-041/042/043 (Job Queue, Worker Architecture, Retry/Recovery)._
+_Last updated: 2026-08-25 - MODULE-044 (Multimodal QC)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -982,6 +982,88 @@ own.
   `claim()`'s raw Core-level UPDATE instead of mirroring the update via
   plain attribute assignment.
 
+### MODULE-044 - Multimodal QC
+
+- **`MediaQCDimension`** (`domain/enums.py`) - identity/style/continuity/
+  composition/motion/media_health/dialogue_audio. `MediaQCAttempt`
+  (`domain/media_qc.py`) - one persisted verdict per dimension check
+  (status/score/evidence/reasons/repair_recommendation), never overwritten
+  (same "preserve every attempt" precedent as every take-numbered asset in
+  this codebase - ADR-019), backed by a new `media_qc_attempts` table +
+  `MediaQCRepository`.
+- **Deterministic checks** (`pipeline/media_qc_checks.py`) -
+  `check_media_health` (any asset type: zero-byte file, missing/mismatched
+  width-height-aspect for image/video, missing/mismatched/non-positive
+  duration for video/audio) and `check_dialogue_audio` (audio-specific:
+  implausible or expectation-deviating duration). No vision model, no
+  credentials, always available - satisfies "deterministic media checks"
+  directly. Only unambiguous evidence (zero size_bytes, a negative
+  duration) BLOCKs; a merely *missing* measurement (e.g. no real
+  audio-duration probe is wired up yet, so a TTS take's duration is often
+  unmeasured) WARNs rather than falsely blocking every existing take.
+- **`MediaQCProvider`** (`providers/media_qc.py`) - generalizes the
+  Module-05-deferred, never-implemented `IdentityQCProvider` into one
+  Protocol covering every dimension that genuinely needs a vision-capable
+  model (identity/style/continuity/composition/motion), so a real
+  implementation only ever has to satisfy one interface -
+  `providers/identity_qc.py` now documents this supersession and keeps
+  only its threshold constants. `providers/fake_media_qc.py:
+  FakeMediaQCProvider` (same scripted-queue pattern as every other fake
+  provider) is what's actually wired up (`app.state.media_qc_provider`) -
+  no real (paid/free) vision-capable QC model exists yet, same deferral
+  every other media provider in this codebase has.
+- **`MediaQCService`** (`services/media_qc_service.py`) - `run_check`
+  dispatches a dimension to the deterministic checker (MEDIA_HEALTH/
+  DIALOGUE_AUDIO) or to the injected `MediaQCProvider` (everything else,
+  reading candidate + resolvable reference asset bytes via `AssetService`
+  - unresolved references are skipped, not fatal, matching
+  `StoryboardService.generate_keyframe`'s existing precedent), then
+  persists the attempt with an evidence snapshot (size/dimensions/
+  duration/expectations). `run_gate` runs a list of dimensions and raises
+  `QCGateBlockedError` (carrying every attempt) if any comes back BLOCK.
+- **Acceptance is now gated - the module's "Done when"**:
+  `StoryboardService.accept_keyframe` (MEDIA_HEALTH + COMPOSITION always;
+  +STYLE when `style_dna` is passed; +IDENTITY when
+  `character_reference_ids` is passed), `VideoProductionService.accept_take`
+  (MEDIA_HEALTH + MOTION always; +CONTINUITY against the continuity-group
+  predecessor's already-extracted last frame when one exists; +IDENTITY
+  when character references are passed), and
+  `AudioProductionService.accept_take` (MEDIA_HEALTH + DIALOGUE_AUDIO
+  always) all call `MediaQCService.run_gate` *before* calling
+  `AssetService.accept` - a BLOCK verdict leaves the asset `pending` and
+  the production record `draft`, exactly like a manual rejection. The new
+  optional context parameters (`style_dna`, `character_reference_ids`,
+  `expected_duration_seconds`) default to `None`/empty so every existing
+  caller keeps working unchanged; only the dimensions with real context
+  available run beyond the two universal ones.
+- **API** - `GET /assets/{id}/qc` (full attempt history for an asset).
+  `QCGateBlockedError` -> HTTP 409 on
+  `POST /storyboards/{id}/keyframes/{asset_id}/accept`,
+  `POST /video-productions/{id}/takes/{asset_id}/accept`, and
+  `POST /audio-productions/{id}/takes/{asset_id}/accept`.
+- **Migration** - `alembic/versions/a1b2c3d4e5f6_add_media_qc_attempts.py`.
+- **Configurable thresholds** - deterministic checks take
+  `duration_tolerance`/expected values as parameters rather than hard-coded
+  constants; `IdentityQCProvider`'s pass/block thresholds
+  (`IDENTITY_SIMILARITY_PASS_THRESHOLD`/`_BLOCK_THRESHOLD`) remain the
+  documented starting point for calibrating a real vision scorer. No
+  single opaque score anywhere (ADR-018) - every verdict carries
+  dimension-scoped reasons and a repair recommendation.
+- Acceptance criterion met: production assets (keyframes, video takes,
+  dialogue takes) cannot become accepted without passing a defined,
+  persisted, pass/warn/block QC gate - verified end to end (BLOCK path
+  integration test per production service plus one at the API layer
+  asserting 409 and the asset staying `pending`) plus 20 new focused unit
+  tests (every deterministic-check PASS/WARN/BLOCK branch, fake provider
+  default/queued/error behavior, repository create/list/get_latest,
+  service run_check for both deterministic and provider-backed dimensions
+  including the skip-unresolved-reference path, run_gate pass/block) and
+  the full existing suite (400 tests) staying green with unchanged
+  behavior - the fake provider defaults to PASS, so no existing accept_*
+  call site's outcome changed. Live vision-model verification is
+  documented as pending, matching every other deferred real media
+  provider in this codebase.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1002,17 +1084,16 @@ own.
 
 ## Planned (not started)
 
-- Real (paid/free) video/voice/lip-sync provider adapters and real
-  `ffmpeg` last-frame extraction verification - the contracts/router/
-  registries/fake extractor these will plug into already exist.
-- Character motion/performance mapping (MODULE-033), voice/dialogue/lip-
-  sync/music/SFX/subtitles (MODULE-034-039), job queue/worker/retry
-  (MODULE-041-043), multimodal QC/retakes (MODULE-044-045), FFmpeg
-  assembly/versioning/export (MODULE-046-048), cost/observability
-  (MODULE-049-050), remaining APIs/frontend (MODULE-051-060),
-  analytics/learning (MODULE-061-065), security/deployment/hardening
-  (MODULE-066-070), testing/eval frameworks (MODULE-071-076),
-  backup/migration/docs/release (MODULE-077-080).
+- Real (paid/free) video/voice/lip-sync/vision-QC provider adapters and
+  real `ffmpeg` last-frame extraction verification - the contracts/
+  router/registries/fake implementations these will plug into already
+  exist (MODULE-006/007/029/032/034/036/044).
+- Automatic retakes (MODULE-045, now unblocked - depends on 030/043/044,
+  all now complete), FFmpeg assembly/versioning/export (MODULE-046-048),
+  cost/observability (MODULE-049-050), remaining APIs/frontend
+  (MODULE-051-060), analytics/learning (MODULE-061-065), security/
+  deployment/hardening (MODULE-066-070), testing/eval frameworks
+  (MODULE-071-076), backup/migration/docs/release (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
 - See `modules/README.md` for the full authoritative MODULE-001..080 queue.

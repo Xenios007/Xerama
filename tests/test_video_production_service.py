@@ -5,18 +5,32 @@ from xerama.domain.generation_request import CompiledReferences, ShotGenerationR
 from xerama.domain.scene import Camera, CharacterBlock, ProviderRequirements, SceneBlocking, Visual
 from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_lip_sync import FakeLipSyncProvider
+from xerama.providers.fake_media_qc import FakeMediaQCProvider
 from xerama.providers.fake_video import FakeVideoProvider
 from xerama.providers.lip_sync import LipSyncProviderCapabilities
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.providers.video import VideoProviderCapabilities
-from xerama.repositories.sqlalchemy_impl import SQLAlchemyAssetRepository, SQLAlchemyVideoProductionRepository
+from xerama.repositories.sqlalchemy_impl import (
+    SQLAlchemyAssetRepository,
+    SQLAlchemyMediaQCRepository,
+    SQLAlchemyVideoProductionRepository,
+)
 from xerama.services.asset_service import AssetService
+from xerama.services.media_qc_service import MediaQCService
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
 from xerama.services.video_production_service import (
     ContinuityOrderingError,
     LipSyncEligibilityError,
     VideoProductionService,
 )
+
+
+def _media_qc(session, storage, provider=None) -> MediaQCService:
+    return MediaQCService(
+        repo=SQLAlchemyMediaQCRepository(session),
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        provider=provider or FakeMediaQCProvider(),
+    )
 
 from test_storyboard_repository import _episode
 
@@ -49,6 +63,7 @@ def _service(session, storage, frame_extractor=None) -> VideoProductionService:
         production_repo=SQLAlchemyVideoProductionRepository(session),
         asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
         frame_extractor=frame_extractor or FakeFrameExtractor(),
+        media_qc=_media_qc(session, storage),
     )
 
 
@@ -115,6 +130,37 @@ async def test_standalone_shot_take_never_extracts_last_frame(session, storage) 
     assert accepted.status == "approved"
     assert accepted.extracted_last_frame_asset_id is None
     assert extractor.calls == []  # standalone shots never trigger extraction
+
+
+async def test_accept_take_blocked_by_qc_gate(session, storage) -> None:
+    """MODULE-044 - a BLOCK verdict on any dimension keeps the take (and
+    the production record) not-accepted."""
+    from xerama.domain.enums import QCStatus
+    from xerama.domain.quality import QCResult
+    from xerama.services.media_qc_service import QCGateBlockedError
+
+    episode_id = await _episode(session)
+    blocked = QCResult(gate="motion", status=QCStatus.BLOCK, score=0.0, reasons=["impossible motion"])
+    service = VideoProductionService(
+        production_repo=SQLAlchemyVideoProductionRepository(session),
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        frame_extractor=FakeFrameExtractor(),
+        media_qc=_media_qc(session, storage, FakeMediaQCProvider([blocked])),
+    )
+    production = await service.get_or_create_production(episode_id, 1, 1)
+    await session.commit()
+
+    provider = FakeVideoProvider([b"clip"])
+    router = MediaProviderRouter([provider])
+    asset = await service.generate_take(production.id, "PROJ_1", _request(), router)
+    await session.commit()
+
+    with pytest.raises(QCGateBlockedError):
+        await service.accept_take(production.id, asset.id)
+    await session.commit()
+
+    unchanged = await service.get(production.id)
+    assert unchanged.status == "draft"
 
 
 async def test_continuity_group_second_shot_requires_first_extracted(session, storage) -> None:

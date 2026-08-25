@@ -28,14 +28,17 @@ take, and rejecting it never corrupts either source.
 """
 
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetType
+from xerama.domain.enums import MediaQCDimension
 from xerama.domain.generation_request import ShotGenerationRequest
 from xerama.domain.scene import SceneBlocking
 from xerama.domain.video_production import ShotVideoProduction
 from xerama.providers.frame_extractor import FrameExtractor
 from xerama.providers.lip_sync import LipSyncProvider, LipSyncRequest
+from xerama.providers.media_qc import MediaQCContext
 from xerama.providers.video import VideoGenerationRequest, VideoProvider, matches_requirements
 from xerama.repositories.interfaces import VideoProductionRepository
 from xerama.services.asset_service import AssetService
+from xerama.services.media_qc_service import MediaQCService
 from xerama.services.media_router import MediaProviderRouter
 
 
@@ -58,10 +61,12 @@ class VideoProductionService:
         production_repo: VideoProductionRepository,
         asset_service: AssetService,
         frame_extractor: FrameExtractor,
+        media_qc: MediaQCService,
     ) -> None:
         self._production_repo = production_repo
         self._asset_service = asset_service
         self._frame_extractor = frame_extractor
+        self._media_qc = media_qc
 
     async def get_or_create_production(
         self,
@@ -280,8 +285,34 @@ class VideoProductionService:
             take_number=take_number,
         )
 
-    async def accept_take(self, production_id: str, asset_id: str) -> ShotVideoProduction:
+    async def accept_take(
+        self, production_id: str, asset_id: str, character_reference_ids: list[str] | None = None
+    ) -> ShotVideoProduction:
+        """MODULE-044 - a take cannot become accepted without passing its
+        QC gate first: always MEDIA_HEALTH and MOTION; CONTINUITY
+        additionally runs when this shot is mid a `continuity_group` with
+        an already-accepted-and-extracted predecessor (checked against
+        that predecessor's extracted last frame); IDENTITY when character
+        reference assets are supplied. Raises `QCGateBlockedError` (never
+        accepts) on a BLOCK verdict."""
         production = await self.get(production_id)
+        dimensions = [MediaQCDimension.MEDIA_HEALTH, MediaQCDimension.MOTION]
+        reference_ids = list(character_reference_ids or [])
+        if production.continuity_group:
+            predecessor = await self._production_repo.get_previous_in_continuity_group(
+                production.episode_id,
+                production.continuity_group,
+                production.scene_number,
+                production.shot_number,
+            )
+            if predecessor is not None and predecessor.extracted_last_frame_asset_id:
+                reference_ids.append(predecessor.extracted_last_frame_asset_id)
+                dimensions.append(MediaQCDimension.CONTINUITY)
+        if character_reference_ids:
+            dimensions.append(MediaQCDimension.IDENTITY)
+        context = MediaQCContext(expected_aspect_ratio="9:16", reference_asset_ids=reference_ids)
+        await self._media_qc.run_gate(asset_id, dimensions, context)
+
         asset = await self._asset_service.accept(asset_id)
         approved = await self._production_repo.approve(production_id, asset_id)
         if production.continuity_group:

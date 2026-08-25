@@ -13,18 +13,27 @@ never a new media-storage mechanism of its own.
 """
 
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetType
+from xerama.domain.enums import MediaQCDimension
 from xerama.domain.generation_request import ShotGenerationRequest
 from xerama.domain.storyboard import Storyboard
 from xerama.providers.image import ImageEditRequest, ImageGenerationRequest, ImageProvider
+from xerama.providers.media_qc import MediaQCContext
 from xerama.repositories.interfaces import StoryboardRepository
 from xerama.services.asset_service import AssetService
+from xerama.services.media_qc_service import MediaQCService
 from xerama.services.media_router import MediaProviderRouter
 
 
 class StoryboardService:
-    def __init__(self, storyboard_repo: StoryboardRepository, asset_service: AssetService) -> None:
+    def __init__(
+        self,
+        storyboard_repo: StoryboardRepository,
+        asset_service: AssetService,
+        media_qc: MediaQCService,
+    ) -> None:
         self._storyboard_repo = storyboard_repo
         self._asset_service = asset_service
+        self._media_qc = media_qc
 
     async def get_or_create_storyboard(
         self, episode_id: str, scene_number: int, shot_number: int, layout_description: str = ""
@@ -205,7 +214,29 @@ class StoryboardService:
             take_number=take_number,
         )
 
-    async def accept_keyframe(self, storyboard_id: str, asset_id: str) -> Storyboard:
+    async def accept_keyframe(
+        self,
+        storyboard_id: str,
+        asset_id: str,
+        style_dna: str = "",
+        character_reference_ids: list[str] | None = None,
+    ) -> Storyboard:
+        """MODULE-044 - a keyframe cannot become accepted without passing
+        its QC gate first: always MEDIA_HEALTH (file integrity) and
+        COMPOSITION (9:16 framing); STYLE/IDENTITY additionally run when
+        the caller has style DNA / character reference assets to check
+        against. Raises `QCGateBlockedError` (never accepts) on a BLOCK
+        verdict."""
+        dimensions = [MediaQCDimension.MEDIA_HEALTH, MediaQCDimension.COMPOSITION]
+        reference_ids = list(character_reference_ids or [])
+        if style_dna:
+            dimensions.append(MediaQCDimension.STYLE)
+        if reference_ids:
+            dimensions.append(MediaQCDimension.IDENTITY)
+        context = MediaQCContext(
+            expected_aspect_ratio="9:16", style_dna=style_dna, reference_asset_ids=reference_ids
+        )
+        await self._media_qc.run_gate(asset_id, dimensions, context)
         await self._asset_service.accept(asset_id)
         return await self._storyboard_repo.approve(storyboard_id, asset_id)
 

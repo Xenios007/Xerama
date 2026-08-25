@@ -12,6 +12,7 @@ from xerama.providers.fake import FakeLLMProvider
 from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_image import FakeImageProvider
 from xerama.providers.fake_lip_sync import FakeLipSyncProvider
+from xerama.providers.fake_media_qc import FakeMediaQCProvider
 from xerama.providers.fake_video import FakeVideoProvider
 from xerama.providers.fake_voice import FakeVoiceProvider
 from xerama.providers.health import ProviderHealthTracker
@@ -58,6 +59,8 @@ async def client(tmp_path):
     app.state.voice_router = MediaProviderRouter([voice_provider])
     lip_sync_provider = FakeLipSyncProvider()
     app.state.lip_sync_router = MediaProviderRouter([lip_sync_provider])
+    media_qc_provider = FakeMediaQCProvider()
+    app.state.media_qc_provider = media_qc_provider
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -66,6 +69,7 @@ async def client(tmp_path):
         ac.fake_voice_provider = voice_provider
         ac.fake_lip_sync_provider = lip_sync_provider
         ac.fake_video_provider = video_provider
+        ac.fake_media_qc_provider = media_qc_provider
         yield ac
 
     await engine.dispose()
@@ -416,6 +420,44 @@ async def test_storyboard_keyframe_generate_accept_flow(client: httpx.AsyncClien
     assert accepted.status_code == 200
     assert accepted.json()["status"] == "approved"
     assert accepted.json()["approved_keyframe_asset_id"] == asset["id"]
+
+    qc_attempts = await client.get(f"/assets/{asset['id']}/qc")
+    assert qc_attempts.status_code == 200
+    dimensions = {a["dimension"] for a in qc_attempts.json()}
+    assert "media_health" in dimensions
+    assert "composition" in dimensions
+
+
+@pytest.mark.asyncio
+async def test_storyboard_keyframe_accept_blocked_by_qc_gate(client: httpx.AsyncClient) -> None:
+    """MODULE-044 - a BLOCKed QC dimension keeps the keyframe unaccepted,
+    surfaced to the caller as 409."""
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    created_storyboard = await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/storyboard")
+    storyboard_id = created_storyboard.json()["id"]
+
+    client.fake_image_provider.queue(b"generated keyframe bytes")
+    generated_keyframe = await client.post(f"/storyboards/{storyboard_id}/keyframes/generate")
+    asset = generated_keyframe.json()
+
+    from xerama.domain.enums import QCStatus
+    from xerama.domain.quality import QCResult
+
+    client.fake_media_qc_provider.queue(
+        QCResult(gate="composition", status=QCStatus.BLOCK, score=0.0, reasons=["crowded frame"])
+    )
+    blocked = await client.post(f"/storyboards/{storyboard_id}/keyframes/{asset['id']}/accept")
+    assert blocked.status_code == 409, blocked.text
+
+    still_pending = await client.get(f"/assets/{asset['id']}")
+    assert still_pending.json()["status"] == "pending"
 
 
 @pytest.mark.asyncio

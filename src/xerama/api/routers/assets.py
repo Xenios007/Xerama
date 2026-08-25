@@ -3,9 +3,11 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from xerama.api.deps import get_asset_service
+from xerama.api.deps import get_asset_service, get_media_qc_service
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetType
+from xerama.domain.media_qc import MediaQCAttempt
 from xerama.services.asset_service import AssetService
+from xerama.services.media_qc_service import MediaQCService
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -50,6 +52,15 @@ async def download_asset(asset_id: str, service: AssetService = Depends(get_asse
     except FileNotFoundError:
         raise HTTPException(status_code=410, detail="asset file is missing from storage") from None
     return Response(content=data, media_type=asset.mime_type or "application/octet-stream")
+
+
+@router.get("/{asset_id}/qc", response_model=list[MediaQCAttempt])
+async def list_qc_attempts(
+    asset_id: str, service: MediaQCService = Depends(get_media_qc_service)
+) -> list[MediaQCAttempt]:
+    """See MODULE-044 - the full audit trail (never overwritten) of every
+    QC dimension check ever run on this asset."""
+    return await service.list_attempts(asset_id)
 
 
 @router.post("/{asset_id}/accept", response_model=Asset)

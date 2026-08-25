@@ -32,6 +32,7 @@ from xerama.pipeline.ai_gateway import AIGateway
 from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_image import FakeImageProvider
 from xerama.providers.fake_lip_sync import FakeLipSyncProvider
+from xerama.providers.fake_media_qc import FakeMediaQCProvider
 from xerama.providers.fake_video import FakeVideoProvider
 from xerama.providers.fake_voice import FakeVoiceProvider
 from xerama.providers.ffmpeg_frame_extractor import FFmpegFrameExtractor
@@ -81,6 +82,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.video_router = MediaProviderRouter([FakeVideoProvider()])
     app.state.voice_router = MediaProviderRouter([FakeVoiceProvider()])
     app.state.lip_sync_router = MediaProviderRouter([FakeLipSyncProvider()])
+    # MODULE-044 - no real vision-capable QC model is wired up yet either;
+    # the fake gives every accept_* call a real (structurally-enforced) QC
+    # gate to pass through today, ready to swap for a real scorer later.
+    app.state.media_qc_provider = FakeMediaQCProvider()
     # Real last-frame extraction needs an `ffmpeg` binary on PATH - fall
     # back to the fake extractor (still a fully working no-video-decode
     # placeholder) when one isn't installed, same "optional real adapter"

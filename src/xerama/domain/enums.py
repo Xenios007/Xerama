@@ -206,6 +206,23 @@ class IdentityType(str, Enum):
     LICENSED_AUTHORIZED = "licensed_authorized"
 
 
+class MediaQCDimension(str, Enum):
+    """See MODULE-044 - Multimodal QC. `IDENTITY`/`STYLE`/`CONTINUITY`/
+    `COMPOSITION`/`MOTION` need a vision-capable `MediaQCProvider` (no real
+    one is wired up yet - deferred like every other real media provider,
+    same pattern as `IdentityQCProvider`). `MEDIA_HEALTH`/`DIALOGUE_AUDIO`
+    are fully deterministic (`pipeline/media_qc_checks.py`) and need no
+    model."""
+
+    IDENTITY = "identity"
+    STYLE = "style"
+    CONTINUITY = "continuity"
+    COMPOSITION = "composition"
+    MOTION = "motion"
+    MEDIA_HEALTH = "media_health"
+    DIALOGUE_AUDIO = "dialogue_audio"
+
+
 class CanonChangeType(str, Enum):
     """See docs/DATA_MODEL.md (Episode State Change)."""
 

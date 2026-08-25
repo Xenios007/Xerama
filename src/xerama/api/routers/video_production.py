@@ -27,6 +27,7 @@ from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository, 
 from xerama.services.asset_service import AssetService
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
 from xerama.services.storyboard_service import StoryboardService
+from xerama.services.media_qc_service import QCGateBlockedError
 from xerama.services.video_production_service import (
     ContinuityOrderingError,
     LipSyncEligibilityError,
@@ -236,6 +237,8 @@ async def accept_take(
 ) -> ShotVideoProduction:
     try:
         return await service.accept_take(production_id, asset_id)
+    except QCGateBlockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

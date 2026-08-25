@@ -1,16 +1,19 @@
 import pytest
 
 from xerama.domain.enums import AudioMode
+from xerama.providers.fake_media_qc import FakeMediaQCProvider
 from xerama.providers.fake_voice import FakeVoiceProvider
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.providers.voice import VoiceProviderCapabilities
 from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyAssetRepository,
     SQLAlchemyAudioProductionRepository,
+    SQLAlchemyMediaQCRepository,
     SQLAlchemyVoiceProfileRepository,
 )
 from xerama.services.asset_service import AssetService
 from xerama.services.audio_production_service import AudioProductionService
+from xerama.services.media_qc_service import MediaQCService
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
 
 from test_storyboard_repository import _episode
@@ -21,11 +24,20 @@ def storage(tmp_path):
     return LocalStorageProvider(tmp_path / "store")
 
 
+def _media_qc(session, storage, provider=None) -> MediaQCService:
+    return MediaQCService(
+        repo=SQLAlchemyMediaQCRepository(session),
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        provider=provider or FakeMediaQCProvider(),
+    )
+
+
 def _service(session, storage) -> AudioProductionService:
     return AudioProductionService(
         production_repo=SQLAlchemyAudioProductionRepository(session),
         voice_profile_repo=SQLAlchemyVoiceProfileRepository(session),
         asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        media_qc=_media_qc(session, storage),
     )
 
 
@@ -139,6 +151,36 @@ async def test_accept_take_marks_production_approved(session, storage) -> None:
 
     assert approved.status == "approved"
     assert approved.approved_take_asset_id == asset.id
+
+
+async def test_accept_take_blocked_by_negative_duration(session, storage) -> None:
+    """MODULE-044 - `check_dialogue_audio` BLOCKs a genuinely impossible
+    (negative) measured duration, keeping the take not-accepted."""
+    from xerama.domain.enums import QCStatus
+    from xerama.services.media_qc_service import QCGateBlockedError
+
+    episode_id = await _episode(session)
+    service = _service(session, storage)
+    production = await service.get_or_create_production(episode_id, 1, 1, AudioMode.TTS_LIPSYNC)
+    await session.commit()
+
+    asset_service = AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session))
+    from xerama.domain.asset import AssetOwnership, AssetType
+
+    asset = await asset_service.ingest_bytes(
+        b"data",
+        AssetType.AUDIO,
+        AssetOwnership(project_id="PROJ_1", episode_id=episode_id, scene_number=1, shot_number=1),
+        duration_seconds=-1.0,
+    )
+    await session.commit()
+
+    with pytest.raises(QCGateBlockedError):
+        await service.accept_take(production.id, asset.id)
+    await session.commit()
+
+    unchanged = await service.get(production.id)
+    assert unchanged.status == "draft"
 
 
 async def test_list_takes_returns_lineage_in_order(session, storage) -> None:

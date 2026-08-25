@@ -414,6 +414,25 @@ class Asset(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
+class MediaQCAttempt(Base):
+    """See MODULE-044. Never overwritten - each QC pass on an asset (one
+    dimension at a time) inserts a new row, giving a full audit trail
+    (ADR-019's "preserve rejected takes and reasons" applied to QC
+    attempts, not just generation takes)."""
+
+    __tablename__ = "media_qc_attempts"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    asset_id: Mapped[str] = mapped_column(String(32), index=True)
+    dimension: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16))
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    reasons: Mapped[list] = mapped_column(JSON, default=list)
+    repair_recommendation: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 class StyleBible(Base):
     """One production-anchor row per series - see ADR-013 and Module 06."""
 

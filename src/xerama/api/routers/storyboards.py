@@ -20,6 +20,7 @@ from xerama.domain.storyboard import Storyboard
 from xerama.pipeline.prompt_compiler import PromptCompiler
 from xerama.providers.image import ImageProvider
 from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository, StyleBibleRepository
+from xerama.services.media_qc_service import QCGateBlockedError
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
 from xerama.services.storyboard_service import StoryboardService
 
@@ -194,6 +195,8 @@ async def accept_keyframe(
 ) -> Storyboard:
     try:
         return await service.accept_keyframe(storyboard_id, asset_id)
+    except QCGateBlockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

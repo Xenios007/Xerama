@@ -14,6 +14,7 @@ from xerama.providers.frame_extractor import FrameExtractor
 from xerama.providers.image import ImageProvider
 from xerama.providers.lip_sync import LipSyncProvider
 from xerama.providers.local_storage import LocalStorageProvider
+from xerama.providers.media_qc import MediaQCProvider
 from xerama.providers.video import VideoProvider
 from xerama.providers.voice import VoiceProvider
 from xerama.services.media_router import MediaProviderRouter
@@ -24,6 +25,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyConceptRepository,
     SQLAlchemyEpisodeRepository,
     SQLAlchemyJobRepository,
+    SQLAlchemyMediaQCRepository,
     SQLAlchemyMusicCueRepository,
     SQLAlchemyProjectRepository,
     SQLAlchemySeasonRepository,
@@ -38,6 +40,7 @@ from xerama.repositories.sqlalchemy_impl import (
 from xerama.services.asset_service import AssetService
 from xerama.services.audio_production_service import AudioProductionService
 from xerama.services.character_casting_service import CharacterCastingService
+from xerama.services.media_qc_service import MediaQCService
 from xerama.services.music_cue_service import MusicCueService
 from xerama.services.sound_effect_service import SoundEffectCueService
 from xerama.services.storyboard_service import StoryboardService
@@ -89,13 +92,31 @@ def get_style_bible_service(
     return StyleBibleService(repo=SQLAlchemyStyleBibleRepository(session))
 
 
+def get_media_qc_provider(request: Request) -> MediaQCProvider:
+    return request.app.state.media_qc_provider
+
+
+def get_media_qc_service(
+    session: AsyncSession = Depends(get_session),
+    storage: LocalStorageProvider = Depends(get_storage_provider),
+    provider: MediaQCProvider = Depends(get_media_qc_provider),
+) -> MediaQCService:
+    return MediaQCService(
+        repo=SQLAlchemyMediaQCRepository(session),
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        provider=provider,
+    )
+
+
 def get_storyboard_service(
     session: AsyncSession = Depends(get_session),
     storage: LocalStorageProvider = Depends(get_storage_provider),
+    media_qc: MediaQCService = Depends(get_media_qc_service),
 ) -> StoryboardService:
     return StoryboardService(
         storyboard_repo=SQLAlchemyStoryboardRepository(session),
         asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        media_qc=media_qc,
     )
 
 
@@ -119,11 +140,13 @@ def get_video_production_service(
     session: AsyncSession = Depends(get_session),
     storage: LocalStorageProvider = Depends(get_storage_provider),
     frame_extractor: FrameExtractor = Depends(get_frame_extractor),
+    media_qc: MediaQCService = Depends(get_media_qc_service),
 ) -> VideoProductionService:
     return VideoProductionService(
         production_repo=SQLAlchemyVideoProductionRepository(session),
         asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
         frame_extractor=frame_extractor,
+        media_qc=media_qc,
     )
 
 
@@ -146,11 +169,13 @@ def get_voice_router(request: Request) -> MediaProviderRouter[VoiceProvider]:
 def get_audio_production_service(
     session: AsyncSession = Depends(get_session),
     storage: LocalStorageProvider = Depends(get_storage_provider),
+    media_qc: MediaQCService = Depends(get_media_qc_service),
 ) -> AudioProductionService:
     return AudioProductionService(
         production_repo=SQLAlchemyAudioProductionRepository(session),
         voice_profile_repo=SQLAlchemyVoiceProfileRepository(session),
         asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        media_qc=media_qc,
     )
 
 

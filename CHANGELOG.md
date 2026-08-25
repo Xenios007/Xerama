@@ -4,6 +4,45 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-044 - Multimodal QC)
+
+- `MediaQCDimension` (identity/style/continuity/composition/motion/
+  media_health/dialogue_audio) and `MediaQCAttempt` (persisted verdict:
+  status, score, evidence, reasons, repair recommendation - never
+  overwritten, ADR-019) - `media_qc_attempts` table + `MediaQCRepository`.
+- `pipeline/media_qc_checks.py`: deterministic `check_media_health` (any
+  asset type: size/dimensions/duration vs. expectation) and
+  `check_dialogue_audio` (audio-specific duration plausibility) - no
+  vision model, no credentials, always available. Only unambiguous
+  evidence (zero-byte file, impossible negative duration) BLOCKs; a
+  missing measurement WARNs (no real audio/video-duration probe is wired
+  up yet).
+- `providers/media_qc.py:MediaQCProvider` - generalizes the previously
+  unused, Module-05-deferred `IdentityQCProvider` into one Protocol
+  covering every vision-dependent dimension (identity/style/continuity/
+  composition/motion). `providers/fake_media_qc.py:FakeMediaQCProvider`
+  (scripted-queue pattern, defaults to PASS) is what's actually wired up
+  today - no real (paid/free) vision-capable QC model exists yet.
+- `services/media_qc_service.py:MediaQCService` - runs a dimension check
+  (deterministic or provider-backed), persists the attempt, and
+  `run_gate` raises `QCGateBlockedError` if any dimension comes back
+  BLOCK.
+- **Acceptance is now gated**: `StoryboardService.accept_keyframe`
+  (MEDIA_HEALTH + COMPOSITION, +STYLE/+IDENTITY when style DNA/character
+  references are supplied), `VideoProductionService.accept_take`
+  (MEDIA_HEALTH + MOTION, +CONTINUITY against the continuity-group
+  predecessor's extracted frame, +IDENTITY when character references are
+  supplied), and `AudioProductionService.accept_take` (MEDIA_HEALTH +
+  DIALOGUE_AUDIO) all run their gate before flipping the asset to
+  ACCEPTED. `QCGateBlockedError` -> HTTP 409 on the three accept
+  endpoints. New `GET /assets/{id}/qc` lists every attempt.
+- 24 new tests (deterministic checks incl. every PASS/WARN/BLOCK path,
+  fake provider, repository, service `run_check`/`run_gate`, and one
+  BLOCK-path integration test per production service plus one at the API
+  layer) plus the full existing suite (400 tests) staying green
+  unmodified in behavior - the fake provider defaults to PASS, so every
+  existing accept_* call site keeps working exactly as before.
+
 ### Added (MODULE-041 / MODULE-042 / MODULE-043 - Job Queue, Worker Architecture, Retry/Recovery)
 
 - `GenerationJob` gains queue fields (`priority`, `payload`,

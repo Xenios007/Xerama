@@ -15,6 +15,7 @@ from xerama.domain.audio_production import ShotAudioProduction
 from xerama.providers.voice import VoiceProvider
 from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository
 from xerama.services.audio_production_service import AudioProductionService
+from xerama.services.media_qc_service import QCGateBlockedError
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
 
 router = APIRouter(tags=["audio-production"])
@@ -149,6 +150,8 @@ async def accept_dialogue_take(
 ) -> ShotAudioProduction:
     try:
         return await service.accept_take(production_id, asset_id)
+    except QCGateBlockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

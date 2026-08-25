@@ -15,10 +15,12 @@ this service).
 
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetType
 from xerama.domain.audio_production import ShotAudioProduction
-from xerama.domain.enums import AudioMode
+from xerama.domain.enums import AudioMode, MediaQCDimension
+from xerama.providers.media_qc import MediaQCContext
 from xerama.providers.voice import VoiceGenerationRequest, VoiceProvider
 from xerama.repositories.interfaces import AudioProductionRepository, VoiceProfileRepository
 from xerama.services.asset_service import AssetService
+from xerama.services.media_qc_service import MediaQCService
 from xerama.services.media_router import MediaProviderRouter
 
 
@@ -28,10 +30,12 @@ class AudioProductionService:
         production_repo: AudioProductionRepository,
         voice_profile_repo: VoiceProfileRepository,
         asset_service: AssetService,
+        media_qc: MediaQCService,
     ) -> None:
         self._production_repo = production_repo
         self._voice_profile_repo = voice_profile_repo
         self._asset_service = asset_service
+        self._media_qc = media_qc
 
     async def get_or_create_production(
         self,
@@ -141,7 +145,16 @@ class AudioProductionService:
             take_number=take_number,
         )
 
-    async def accept_take(self, production_id: str, asset_id: str) -> ShotAudioProduction:
+    async def accept_take(
+        self, production_id: str, asset_id: str, expected_duration_seconds: float | None = None
+    ) -> ShotAudioProduction:
+        """MODULE-044 - a dialogue take cannot become accepted without
+        passing MEDIA_HEALTH and DIALOGUE_AUDIO first. Raises
+        `QCGateBlockedError` (never accepts) on a BLOCK verdict."""
+        context = MediaQCContext(expected_duration_seconds=expected_duration_seconds)
+        await self._media_qc.run_gate(
+            asset_id, [MediaQCDimension.MEDIA_HEALTH, MediaQCDimension.DIALOGUE_AUDIO], context
+        )
         await self._asset_service.accept(asset_id)
         return await self._production_repo.approve(production_id, asset_id)
 

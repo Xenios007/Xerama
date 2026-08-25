@@ -17,6 +17,7 @@ from xerama.domain.brief import CreativeBrief
 from xerama.domain.canon import CanonEvent
 from xerama.domain.character import Character, CharacterCast, PhysicalStateVariant, WardrobeVariant
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
+from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan
@@ -28,7 +29,7 @@ from xerama.domain.story import ConceptCandidate, JudgeResult
 from xerama.domain.style_bible import StyleBible
 from xerama.domain.video_production import ShotVideoProduction
 from xerama.domain.voice import VoiceProfile
-from xerama.domain.enums import JobStage, JobStatus, AudioMode
+from xerama.domain.enums import JobStage, JobStatus, AudioMode, MediaQCDimension, QCStatus
 
 
 class ProjectRecord(BaseModel):
@@ -490,3 +491,25 @@ class SubtitleCueRepository(Protocol):
     async def get(self, cue_id: str) -> SubtitleCue | None: ...
 
     async def list_by_episode(self, episode_id: str, language: str = "en") -> list[SubtitleCue]: ...
+
+
+class MediaQCRepository(Protocol):
+    """See MODULE-044. Every call inserts a new row - a QC attempt is
+    never overwritten (ADR-019)."""
+
+    async def create(
+        self,
+        asset_id: str,
+        dimension: MediaQCDimension,
+        status: QCStatus,
+        score: float,
+        evidence: dict,
+        reasons: list[str],
+        repair_recommendation: str = "",
+    ) -> MediaQCAttempt: ...
+
+    async def list_by_asset(self, asset_id: str) -> list[MediaQCAttempt]: ...
+
+    async def get_latest(
+        self, asset_id: str, dimension: MediaQCDimension
+    ) -> MediaQCAttempt | None: ...

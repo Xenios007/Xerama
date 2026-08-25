@@ -21,11 +21,12 @@ from xerama.domain.character import (
     RelationshipState,
     WardrobeVariant,
 )
-from xerama.domain.enums import AudioMode, JobStage, JobStatus
+from xerama.domain.enums import AudioMode, JobStage, JobStatus, MediaQCDimension, QCStatus
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan, Scene as SceneDTO, Shot as ShotDTO
 from xerama.domain.audio_production import ShotAudioProduction
+from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
 from xerama.domain.rights import RightsMetadata
 from xerama.domain.season import SeasonPlan
@@ -1678,3 +1679,66 @@ class SQLAlchemySubtitleCueRepository:
             .order_by(m.SubtitleCue.start_seconds)
         )
         return [_subtitle_cue(row) for row in result.scalars()]
+
+
+def _media_qc_attempt(row: m.MediaQCAttempt) -> MediaQCAttempt:
+    return MediaQCAttempt(
+        id=row.id,
+        asset_id=row.asset_id,
+        dimension=MediaQCDimension(row.dimension),
+        status=QCStatus(row.status),
+        score=row.score,
+        evidence=row.evidence,
+        reasons=row.reasons,
+        repair_recommendation=row.repair_recommendation,
+        created_at=row.created_at,
+    )
+
+
+class SQLAlchemyMediaQCRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        asset_id: str,
+        dimension: MediaQCDimension,
+        status: QCStatus,
+        score: float,
+        evidence: dict,
+        reasons: list[str],
+        repair_recommendation: str = "",
+    ) -> MediaQCAttempt:
+        row = m.MediaQCAttempt(
+            asset_id=asset_id,
+            dimension=dimension.value,
+            status=status.value,
+            score=score,
+            evidence=evidence,
+            reasons=reasons,
+            repair_recommendation=repair_recommendation,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _media_qc_attempt(row)
+
+    async def list_by_asset(self, asset_id: str) -> list[MediaQCAttempt]:
+        result = await self._session.execute(
+            select(m.MediaQCAttempt)
+            .where(m.MediaQCAttempt.asset_id == asset_id)
+            .order_by(m.MediaQCAttempt.created_at)
+        )
+        return [_media_qc_attempt(row) for row in result.scalars()]
+
+    async def get_latest(self, asset_id: str, dimension: MediaQCDimension) -> MediaQCAttempt | None:
+        result = await self._session.execute(
+            select(m.MediaQCAttempt)
+            .where(
+                m.MediaQCAttempt.asset_id == asset_id,
+                m.MediaQCAttempt.dimension == dimension.value,
+            )
+            .order_by(m.MediaQCAttempt.created_at.desc())
+            .limit(1)
+        )
+        row = result.scalars().first()
+        return _media_qc_attempt(row) if row is not None else None
