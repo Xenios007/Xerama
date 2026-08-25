@@ -4,6 +4,24 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-076 - Failure Simulation)
+
+- `tests/test_failure_simulation.py` - one place the whole failure
+  matrix (timeout, rate limit, quota, corrupt media, worker crash/
+  restart, unavailable provider, failed QC) is inspectable together;
+  most classes already had scattered coverage, this consolidates and
+  adds a few new angles: quota fails on the first attempt (never
+  retried - not in `RETRIABLE_KINDS`), a worker crash on one job leaves
+  a second untouched job independently claimable, and a QC provider
+  that always blocks drives the full auto-heal budget to `escalated`
+  with zero accepted assets among the rejected retries.
+- Found and corrected a documentation mismatch while writing this: the
+  "storyboard is marked `escalated`" language in MODULE-045's own
+  docstring means the boolean `Storyboard.escalated` field, not
+  `status == "escalated"` (`status` stays `"draft"`).
+- 10 new tests; full suite green (679 passed + 2 skipped, up from 669 +
+  2). Completes the MODULE-071-076 testing-architecture cluster.
+
 ### Added (MODULE-075 - End-to-End Production Testing)
 
 - `tests/test_e2e_production.py` (`@pytest.mark.e2e`) - `pytest -m e2e`:

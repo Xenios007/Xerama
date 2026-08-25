@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-075 (End-to-End Production Testing)._
+_Last updated: 2026-08-25 - MODULE-076 (Failure Simulation)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -2330,6 +2330,60 @@ FFmpeg/ffprobe binaries.
   system, not merely as individual modules" - full suite green (669
   passed + 2 skipped, up from 668 passed + 2 skipped).
 
+### MODULE-076 - Failure Simulation
+
+Largely an audit - every one of the 8 named failure classes already had
+*some* coverage scattered across the modules that own it
+(`test_media_router.py`, `test_job_queue_repository.py`,
+`test_job_worker.py`, `test_media_qc.py`, `test_integration.py`). This
+module's real contribution is `tests/test_failure_simulation.py` - one
+place the whole matrix is inspectable together, plus a few angles
+nothing else covered:
+
+- **Timeout** - retried within budget (recovers), and exhausting the
+  budget raises `XeramaGenerationError` cleanly rather than hanging.
+- **Rate limit** - a rate-limited provider is skipped in favor of a
+  healthy fallback (`MediaProviderRouter`'s existing health-circuit
+  behavior, exercised end-to-end from a `RATE_LIMIT` `ProviderError`).
+- **Quota** - fails on the *first* attempt, not retried -
+  `ProviderErrorKind.QUOTA` is deliberately absent from
+  `RETRIABLE_KINDS` (`providers/errors.py`), verified here by asserting
+  the fake provider was called exactly once (no wasted retry budget on
+  a definitively-exhausted quota).
+- **Corrupt media** - a zero-`size_bytes` asset both fails
+  `check_media_health` directly and blocks the real accept gate
+  (`QCGateBlockedError`), leaving the asset `pending`, never silently
+  accepted.
+- **Worker crash / restart** - the angle nothing else covered: a worker
+  crashing while holding *one* job's lease must not affect a *second*,
+  never-claimed job - that job stays independently claimable the whole
+  time, and recovery (`reclaim_abandoned`) only ever touches the
+  abandoned one. (The full single-job crash -> resume -> complete loop
+  is MODULE-074's `test_integration.py`; not duplicated here.)
+- **Unavailable provider** - an empty provider list fails immediately
+  with `NoEligibleProviderError` carrying an (empty but present)
+  `attempts` list - inspectable, not a hang.
+- **Failed QC past the retry budget** - a QC provider that always
+  `BLOCK`s drives `generate_with_auto_heal` through every automatic
+  repair attempt until `AutomaticRetakeService` returns `ESCALATE`;
+  verified the storyboard's `escalated` flag (not - a documented, if
+  loosely-worded, distinction from `status` found while writing this
+  test: MODULE-045's own docstring says "marked `escalated`," which
+  actually means the boolean `Storyboard.escalated` field, not
+  `status == "escalated"` - `status` stays `"draft"`) and
+  `auto_retake_attempts`, and confirmed every keyframe asset the retry
+  loop generated ended up `rejected` - **none** `accepted` despite
+  repeated attempts ("no duplicate accepted assets").
+- **Unrecoverable jobs become inspectable** - a non-retriable
+  `fail_job_attempt` dead-letters a job to `FAILED` (terminal, not stuck
+  `RUNNING`) and it's immediately surfaced by the normal
+  `list_failed(project_id)` query path - the same one `GET /jobs/failed`
+  already exposes (MODULE-054/067).
+- Acceptance criterion met: "expected failure classes have tested
+  recovery or explicit terminal behavior" - 10 new tests; full suite
+  green (679 passed + 2 skipped, up from 669 + 2). This completes the
+  MODULE-071-076 testing-architecture cluster.
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2364,9 +2418,7 @@ FFmpeg/ffprobe binaries.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Failure-simulation testing (MODULE-076),
-  backup/migration/docs/release
-  (MODULE-077-080).
+- Backup/migration/docs/release (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
 - See `modules/README.md` for the full authoritative MODULE-001..080 queue.
