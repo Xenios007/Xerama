@@ -4,6 +4,30 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-049 - Production Cost Engine)
+
+- `CostRecord` (`domain/cost.py`) - append-only per-attempt cost ledger
+  (provider/model/stage/project/series/episode/scene/shot, quantity/unit,
+  cost_usd + cost_known, latency, attempt, asset_id, failure_reason). No
+  prompt/payload/secret fields.
+- `pipeline/cost_aggregation.py` - `summarize_cost_per_accepted` (ADR-024:
+  every attempt's known cost in the numerator, only accepted quantity in
+  the denominator) and `cost_per_episode`.
+- `AIGateway` gains an optional `cost_recorder` + optional
+  project/series/episode context on `generate()` - fully backward
+  compatible (default `None` = old no-persistence behavior). This
+  supersedes the earlier "AI-call telemetry is disabled for this build"
+  deviation note.
+- `CostRecordService.record_generation_attempts` reads a `MediaProviderRouter`
+  call's already-persisted `routing_attempts` and records one `CostRecord`
+  per attempt - wired live at the API layer (image/video/voice `generate`
+  endpoints), no new dependency added to the production services
+  themselves.
+- New API: `GET /projects/{id}/costs`, `GET /projects/{id}/costs/summary`.
+- Migration `d4e5f6a7b8c9_add_cost_records`.
+- 11 new unit/integration tests + 1 API end-to-end test; full suite (483)
+  green.
+
 ### Added (MODULE-046 / MODULE-047 / MODULE-048 - FFmpeg Assembly, Episode Versioning, Vertical Export)
 
 - `AssemblyPlan`/`RenderManifest`/`OutputSpec` (`domain/assembly.py`) +

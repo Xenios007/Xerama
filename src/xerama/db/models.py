@@ -602,3 +602,29 @@ class SubtitleCue(Base):
     start_seconds: Mapped[float] = mapped_column(Float)
     end_seconds: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class CostRecord(Base):
+    """See MODULE-049. One row per generation attempt - never updated.
+    No prompt text/payload/secrets are ever stored here."""
+
+    __tablename__ = "cost_records"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    provider: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(128))
+    stage: Mapped[str] = mapped_column(String(64), index=True)
+    project_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    series_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    episode_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    scene_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    shot_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    quantity: Mapped[float] = mapped_column(Float, default=0.0)
+    unit: Mapped[str] = mapped_column(String(16), default="")
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost_known: Mapped[bool] = mapped_column(Boolean, default=False)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    failure_reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from xerama.api.deps import (
     get_audio_production_service,
+    get_cost_service,
     get_episode_repo,
     get_retake_service,
     get_series_repo,
@@ -16,6 +17,7 @@ from xerama.domain.audio_production import ShotAudioProduction
 from xerama.providers.voice import VoiceProvider
 from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository
 from xerama.services.audio_production_service import AudioProductionService
+from xerama.services.cost_service import CostRecordService
 from xerama.services.media_qc_service import QCGateBlockedError
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
 from xerama.services.retake_service import AutomaticRetakeService
@@ -76,6 +78,7 @@ async def generate_dialogue_take(
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
     voice_router: MediaProviderRouter[VoiceProvider] = Depends(get_voice_router),
+    cost_service: CostRecordService = Depends(get_cost_service),
 ) -> Asset:
     try:
         production = await service.get(production_id)
@@ -96,12 +99,24 @@ async def generate_dialogue_take(
             )
 
     try:
-        return await service.generate_dialogue_take(
+        asset = await service.generate_dialogue_take(
             production_id, series.project_id, body.character_id, text, voice_router,
             series_id=episode.series_id,
         )
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await cost_service.record_generation_attempts(
+        asset,
+        stage="voice_generation",
+        project_id=series.project_id,
+        series_id=episode.series_id,
+        episode_id=production.episode_id,
+        scene_number=production.scene_number,
+        shot_number=production.shot_number,
+        quantity=float(len(text)),
+        unit="characters",
+    )
+    return asset
 
 
 @router.post("/audio-productions/{production_id}/takes/auto-heal", response_model=Asset)

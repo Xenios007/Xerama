@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from xerama.api.deps import (
     get_asset_service,
+    get_cost_service,
     get_episode_repo,
     get_lip_sync_router,
     get_retake_service,
@@ -26,6 +27,7 @@ from xerama.providers.lip_sync import LipSyncProvider
 from xerama.providers.video import VideoProvider
 from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository, StyleBibleRepository
 from xerama.services.asset_service import AssetService
+from xerama.services.cost_service import CostRecordService
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
 from xerama.services.retake_service import AutomaticRetakeService
 from xerama.services.storyboard_service import StoryboardService
@@ -97,6 +99,7 @@ async def generate_take(
     series_repo: SeriesRepository = Depends(get_series_repo),
     style_bible_repo: StyleBibleRepository = Depends(get_style_bible_repo),
     video_router: MediaProviderRouter[VideoProvider] = Depends(get_video_router),
+    cost_service: CostRecordService = Depends(get_cost_service),
 ) -> Asset:
     try:
         production = await service.get(production_id)
@@ -126,7 +129,7 @@ async def generate_take(
             keyframe_bytes = None
 
     try:
-        return await service.generate_take(
+        asset = await service.generate_take(
             production_id,
             series.project_id,
             request,
@@ -138,6 +141,18 @@ async def generate_take(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ContinuityOrderingError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await cost_service.record_generation_attempts(
+        asset,
+        stage="video_generation",
+        project_id=series.project_id,
+        series_id=episode.series_id,
+        episode_id=production.episode_id,
+        scene_number=production.scene_number,
+        shot_number=production.shot_number,
+        quantity=request.duration_seconds,
+        unit="seconds",
+    )
+    return asset
 
 
 @router.post("/video-productions/{production_id}/takes/auto-heal", response_model=Asset)

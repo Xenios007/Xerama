@@ -1104,3 +1104,33 @@ async def test_episode_export_validates_and_returns_report(client: httpx.AsyncCl
     assert body["render"]["version"] == 1
     assert body["validation"]["gate"] == "vertical_export"
     assert body["validation"]["status"] in ("pass", "warn", "block")
+
+
+@pytest.mark.asyncio
+async def test_project_cost_summary_reflects_accepted_outputs(client: httpx.AsyncClient) -> None:
+    """MODULE-049 - generating and accepting an image/video records cost
+    attempts, and the summary reports cost per accepted output."""
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    storyboard_id = (
+        await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/storyboard")
+    ).json()["id"]
+    client.fake_image_provider.queue(b"keyframe bytes")
+    keyframe = (await client.post(f"/storyboards/{storyboard_id}/keyframes/generate")).json()
+    await client.post(f"/storyboards/{storyboard_id}/keyframes/{keyframe['id']}/accept")
+
+    raw = await client.get(f"/projects/{project_id}/costs")
+    assert raw.status_code == 200
+    assert len(raw.json()) >= 1
+    assert raw.json()[0]["unit"] == "images"
+
+    summary = await client.get(f"/projects/{project_id}/costs/summary")
+    assert summary.status_code == 200
+    body = summary.json()
+    assert body["image"]["accepted_quantity"] == 1.0

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from xerama.api.deps import (
+    get_cost_service,
     get_episode_repo,
     get_image_router,
     get_retake_service,
@@ -21,6 +22,7 @@ from xerama.domain.storyboard import Storyboard
 from xerama.pipeline.prompt_compiler import PromptCompiler
 from xerama.providers.image import ImageProvider
 from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository, StyleBibleRepository
+from xerama.services.cost_service import CostRecordService
 from xerama.services.media_qc_service import QCGateBlockedError
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
 from xerama.services.retake_service import AutomaticRetakeService
@@ -83,6 +85,7 @@ async def generate_keyframe(
     series_repo: SeriesRepository = Depends(get_series_repo),
     style_bible_repo: StyleBibleRepository = Depends(get_style_bible_repo),
     image_router: MediaProviderRouter[ImageProvider] = Depends(get_image_router),
+    cost_service: CostRecordService = Depends(get_cost_service),
 ) -> Asset:
     try:
         storyboard = await service.get(storyboard_id)
@@ -102,11 +105,23 @@ async def generate_keyframe(
     request = PromptCompiler().compile_shot(shot, scene, cast, bible, style_bible)
 
     try:
-        return await service.generate_keyframe(
+        asset = await service.generate_keyframe(
             storyboard_id, series.project_id, request, image_router, series_id=episode.series_id
         )
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await cost_service.record_generation_attempts(
+        asset,
+        stage="image_generation",
+        project_id=series.project_id,
+        series_id=episode.series_id,
+        episode_id=storyboard.episode_id,
+        scene_number=storyboard.scene_number,
+        shot_number=storyboard.shot_number,
+        quantity=1.0,
+        unit="images",
+    )
+    return asset
 
 
 @router.post("/storyboards/{storyboard_id}/keyframes/auto-heal", response_model=Asset)

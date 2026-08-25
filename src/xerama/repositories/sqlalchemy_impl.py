@@ -26,6 +26,7 @@ from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan, Scene as SceneDTO, Shot as ShotDTO
 from xerama.domain.audio_production import ShotAudioProduction
+from xerama.domain.cost import CostRecord
 from xerama.domain.episode_render import EpisodeRender
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
@@ -1865,3 +1866,88 @@ class SQLAlchemyEpisodeRenderRepository:
         )
         row = result.scalars().first()
         return _episode_render(row) if row is not None else None
+
+
+def _cost_record(row: m.CostRecord) -> CostRecord:
+    return CostRecord(
+        id=row.id,
+        provider=row.provider,
+        model=row.model,
+        stage=row.stage,
+        project_id=row.project_id,
+        series_id=row.series_id,
+        episode_id=row.episode_id,
+        scene_number=row.scene_number,
+        shot_number=row.shot_number,
+        attempt=row.attempt,
+        quantity=row.quantity,
+        unit=row.unit,
+        cost_usd=row.cost_usd,
+        cost_known=row.cost_known,
+        latency_ms=row.latency_ms,
+        asset_id=row.asset_id,
+        failure_reason=row.failure_reason,
+        created_at=row.created_at,
+    )
+
+
+class SQLAlchemyCostRecordRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        provider: str,
+        model: str,
+        stage: str,
+        project_id: str | None = None,
+        series_id: str | None = None,
+        episode_id: str | None = None,
+        scene_number: int | None = None,
+        shot_number: int | None = None,
+        attempt: int = 1,
+        quantity: float = 0.0,
+        unit: str = "",
+        cost_usd: float | None = None,
+        cost_known: bool = False,
+        latency_ms: float | None = None,
+        asset_id: str | None = None,
+        failure_reason: str = "",
+    ) -> CostRecord:
+        row = m.CostRecord(
+            provider=provider,
+            model=model,
+            stage=stage,
+            project_id=project_id,
+            series_id=series_id,
+            episode_id=episode_id,
+            scene_number=scene_number,
+            shot_number=shot_number,
+            attempt=attempt,
+            quantity=quantity,
+            unit=unit,
+            cost_usd=cost_usd,
+            cost_known=cost_known,
+            latency_ms=latency_ms,
+            asset_id=asset_id,
+            failure_reason=failure_reason,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _cost_record(row)
+
+    async def list_by_project(self, project_id: str) -> list[CostRecord]:
+        result = await self._session.execute(
+            select(m.CostRecord)
+            .where(m.CostRecord.project_id == project_id)
+            .order_by(m.CostRecord.created_at)
+        )
+        return [_cost_record(row) for row in result.scalars()]
+
+    async def list_by_episode(self, episode_id: str) -> list[CostRecord]:
+        result = await self._session.execute(
+            select(m.CostRecord)
+            .where(m.CostRecord.episode_id == episode_id)
+            .order_by(m.CostRecord.created_at)
+        )
+        return [_cost_record(row) for row in result.scalars()]

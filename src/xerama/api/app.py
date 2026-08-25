@@ -13,6 +13,7 @@ from xerama.api.routers import (
     assets,
     audio_production,
     characters,
+    costs,
     episodes,
     generation,
     inspect,
@@ -150,6 +151,7 @@ def create_app() -> FastAPI:
     app.include_router(sound_effect_cues.router)
     app.include_router(subtitles.router)
     app.include_router(assembly.router)
+    app.include_router(costs.router)
     return app
 
 

@@ -17,6 +17,7 @@ from xerama.domain.brief import CreativeBrief
 from xerama.domain.canon import CanonEvent
 from xerama.domain.character import Character, CharacterCast, PhysicalStateVariant, WardrobeVariant
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
+from xerama.domain.cost import CostRecord
 from xerama.domain.episode_render import EpisodeRender
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
@@ -560,3 +561,31 @@ class EpisodeRenderRepository(Protocol):
     async def get_current(self, episode_id: str) -> EpisodeRender | None:
         """The single `approved` render for this episode, if any."""
         ...
+
+
+class CostRecordRepository(Protocol):
+    """See MODULE-049. Append-only - every call inserts a new row."""
+
+    async def create(
+        self,
+        provider: str,
+        model: str,
+        stage: str,
+        project_id: str | None = None,
+        series_id: str | None = None,
+        episode_id: str | None = None,
+        scene_number: int | None = None,
+        shot_number: int | None = None,
+        attempt: int = 1,
+        quantity: float = 0.0,
+        unit: str = "",
+        cost_usd: float | None = None,
+        cost_known: bool = False,
+        latency_ms: float | None = None,
+        asset_id: str | None = None,
+        failure_reason: str = "",
+    ) -> CostRecord: ...
+
+    async def list_by_project(self, project_id: str) -> list[CostRecord]: ...
+
+    async def list_by_episode(self, episode_id: str) -> list[CostRecord]: ...

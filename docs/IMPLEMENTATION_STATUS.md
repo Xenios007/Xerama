@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-046/047/048 (FFmpeg Assembly, Episode Versioning, Vertical Export)._
+_Last updated: 2026-08-25 - MODULE-049 (Production Cost Engine)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1229,6 +1229,77 @@ and 048 explicitly reuses 046's render rather than a second encode path
   module's additions, 471 after - with unchanged behavior for every
   existing call site.
 
+### MODULE-049 - Production Cost Engine
+
+- **Supersedes the "AI-call telemetry is disabled" deviation** (see
+  "Documented deviations" #2 below, now marked resolved) - the
+  MODULE-001..080 queue explicitly commissions this as MODULE-049, which
+  ranks above that session-local deviation note in the source-priority
+  order this queue itself defines (`current MODULE specification` above
+  `docs/IMPLEMENTATION_STATUS.md`), and ADR-010 (priority 1) already
+  called per-call telemetry "extremely important" - the note itself
+  anticipated this ("re-adding... is a small, additive change").
+- **`CostRecord`** (`domain/cost.py`) - one append-only row per generation
+  attempt: provider/model/stage/project/series/episode/scene/shot,
+  `quantity`/`unit` (tokens/seconds/characters/images), `cost_usd` +
+  `cost_known` (a `False` cost is "no live pricing API integrated yet",
+  distinct from a confirmed-free `cost_usd=0.0` - "support unknown/free
+  costs explicitly"), `latency_ms`, `attempt`, `asset_id`,
+  `failure_reason`. Deliberately no field for prompt text/payload bytes -
+  "keep secrets/raw sensitive payloads out" is satisfied by the schema
+  itself, not a redaction step.
+- **`pipeline/cost_aggregation.py`** - pure arithmetic (ADR-024, "cost per
+  accepted image, accepted video second and episode, incorporating
+  retries and rejection rates"): `summarize_cost_per_accepted` sums
+  *every* attempt's known cost (rejected/failed attempts included - a
+  provider needing 3 retries per accepted output costs 3x per accepted
+  unit) but divides by only the *accepted* quantity - a count for
+  `unit="images"`, a duration sum for `unit="seconds"` (so "per accepted
+  video second" is genuinely per-second, not per-clip).
+  `cost_per_episode` groups known-cost totals by `episode_id`.
+- **`AIGateway` hook** (`pipeline/ai_gateway.py`) - an optional
+  constructor `cost_recorder: CostRecordService | None = None` (default
+  `None` = old no-persistence behavior, fully backward compatible) plus
+  optional `project_id`/`series_id`/`episode_id` kwargs on `generate()`;
+  records one attempt per provider call (token usage from the response,
+  `cost_known=False`) on success, and one on a non-retriable
+  `ProviderError` (`failure_reason` set). Verified directly with a real
+  recorder in tests; **not live-wired into the `app.py` singleton
+  `AIGateway`** yet - that gateway is constructed once for the process
+  lifetime while cost recording needs a per-request DB session, so
+  wiring it live needs `get_gateway` to build a per-request wrapper
+  instead of returning the singleton (documented as a deferred follow-up,
+  same "mechanism built and tested, live wiring is separable" pattern as
+  every other deferred real adapter in this codebase).
+- **Media-production recording** (`services/cost_service.py:
+  CostRecordService.record_generation_attempts`) - reads the
+  `routing_attempts` a `MediaProviderRouter` call already leaves in
+  `Asset.provenance.generation_params` (Module 07) and records one
+  `CostRecord` per attempt (failed attempts get no `asset_id`, the
+  winner does) - deliberately does *not* add a new constructor dependency
+  to `StoryboardService`/`VideoProductionService`/`AudioProductionService`
+  (zero blast radius on their existing tests); wired instead at the API
+  layer, right after `POST /storyboards/{id}/keyframes/generate`,
+  `POST /video-productions/{id}/takes/generate`, and
+  `POST /audio-productions/{id}/takes/generate` succeed - this is live,
+  end-to-end, and exercised by an API test.
+- **API** - `GET /projects/{id}/costs` (raw ledger),
+  `GET /projects/{id}/costs/summary` (cost-per-accepted-image,
+  cost-per-accepted-video-second, cost-by-episode).
+- **Migration** - `alembic/versions/d4e5f6a7b8c9_add_cost_records.py`.
+- Acceptance criterion met: "provider decisions can be based on
+  accepted-output economics" - every image/video/voice generation call
+  and every LLM call (when a recorder is supplied) leaves a durable,
+  queryable cost trail with retries/rejections counted into the
+  numerator and only accepted outputs in the denominator - verified by
+  11 unit/integration tests (aggregation math incl. unknown-cost
+  exclusion, repository CRUD, `record_generation_attempts` with and
+  without routing attempts, `AIGateway` success/failure/no-recorder
+  paths) plus 1 API end-to-end test (generate -> accept -> summary
+  reflects the accepted output) and the full existing suite staying
+  green (471 -> 483) with unchanged behavior for every existing call
+  site.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1254,7 +1325,7 @@ and 048 explicitly reuses 046's render rather than a second encode path
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Cost/observability (MODULE-049-050), remaining APIs/frontend
+- Production observability (MODULE-050), remaining APIs/frontend
   (MODULE-051-060), analytics/learning (MODULE-061-065), security/
   deployment/hardening (MODULE-066-070), testing/eval frameworks
   (MODULE-071-076), backup/migration/docs/release (MODULE-077-080).
@@ -1279,16 +1350,19 @@ consistent enough to start coding per
    `primary_opposition`, `prohibited_contradictions`; JSON_CONTRACTS.md does
    not). `xerama/domain/story.py:SeriesBible` is the union of both rather
    than a strict pick of one - see the docstring there.
-2. **AI-call telemetry is disabled for this build**, per explicit project
-   direction during this coding session (overriding docs/ARCHITECTURE.md
+2. **RESOLVED by MODULE-049** - "AI-call telemetry is disabled for this
+   build" was a session-local deviation (overriding docs/ARCHITECTURE.md
    section 15 and ADR-010, which call per-call telemetry "extremely
-   important"). No `GenerationRecord`/`AICallRecord` table or
-   `TelemetryRecorder` service exists; the AI gateway logs retries via
-   standard logging only. `GenerationJob` (stage-level state/timestamps/
-   error) still exists and is unaffected - that is a separate ADR-023
-   requirement, not telemetry. Re-adding per-call telemetry is a small,
-   additive change if/when requested again (the gateway already has one
-   choke point - `AIGateway.generate` - where it would hook in).
+   important"). MODULE-049 (Production Cost Engine) has since implemented
+   exactly the hook this note anticipated: `AIGateway.generate` accepts
+   an optional `cost_recorder: CostRecordService` and persists a
+   `CostRecord` per attempt when one is supplied (`domain/cost.py`,
+   `services/cost_service.py`). The gateway's live `app.py` singleton is
+   not yet wired with a recorder (needs a per-request wrapper, not the
+   process-lifetime singleton - see MODULE-049's status entry above);
+   media-provider (image/video/voice) cost recording *is* fully live,
+   wired at the API layer. `GenerationJob` (stage-level state/timestamps/
+   error, ADR-023) was never affected by this deviation either way.
 3. **Canon change classification is a keyword heuristic, not an LLM call** -
    `pipeline/canon_commit.py:classify_change_type` guesses a
    `CanonChangeType` from the outline's free-text `canon_changes` strings.

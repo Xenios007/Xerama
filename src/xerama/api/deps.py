@@ -25,6 +25,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyAudioProductionRepository,
     SQLAlchemyCharacterCastingRepository,
     SQLAlchemyConceptRepository,
+    SQLAlchemyCostRecordRepository,
     SQLAlchemyEpisodeRenderRepository,
     SQLAlchemyEpisodeRepository,
     SQLAlchemyJobRepository,
@@ -44,6 +45,7 @@ from xerama.services.assembly_service import EpisodeAssemblyService
 from xerama.services.asset_service import AssetService
 from xerama.services.audio_production_service import AudioProductionService
 from xerama.services.character_casting_service import CharacterCastingService
+from xerama.services.cost_service import CostRecordService
 from xerama.services.export_service import VerticalExportService
 from xerama.services.media_qc_service import MediaQCService
 from xerama.services.music_cue_service import MusicCueService
@@ -100,6 +102,10 @@ def get_style_bible_service(
 
 def get_retake_service() -> AutomaticRetakeService:
     return AutomaticRetakeService()
+
+
+def get_cost_service(session: AsyncSession = Depends(get_session)) -> CostRecordService:
+    return CostRecordService(repo=SQLAlchemyCostRecordRepository(session))
 
 
 def get_media_qc_provider(request: Request) -> MediaQCProvider:
