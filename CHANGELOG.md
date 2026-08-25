@@ -4,6 +4,23 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-072 - AI Evaluation Framework)
+
+- `eval/datasets.py` - versioned dataset (`v1`) covering the LLM roles
+  that actually make a call today (concept generator, judge, episode
+  writer); `CONTINUITY_CHECKER` documented as N/A (deterministic check,
+  no LLM role exists to benchmark).
+- `pipeline/eval_quality.py` - deterministic 0-10 rubric scoring per
+  schema, `(score, reasons)` always.
+- `pipeline/eval_harness.py` / `pipeline/eval_aggregation.py` - runs a
+  case through the real `AIGateway`, aggregates strictly by `(role,
+  provider, model)` - never averages across roles.
+- New `eval_run_results` table (append-only) + `POST /eval/roles/{role}/run`,
+  `GET /eval/roles/{role}/benchmark`, `POST /eval/runs/{id}/human-preference` -
+  "live eval opt-in," never automatic.
+- 26 new tests, all against `FakeLLMProvider` (no real network call in
+  any eval test); full suite green (644 passed, up from 618).
+
 ### Added (MODULE-071 - Testing Architecture)
 
 - `docs/TESTING.md` - unit/integration/E2E boundaries, fake-provider

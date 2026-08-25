@@ -18,6 +18,7 @@ from xerama.api.routers import (
     characters,
     costs,
     episodes,
+    eval,
     feedback,
     generation,
     health,
@@ -190,6 +191,7 @@ def create_app() -> FastAPI:
     app.include_router(analytics.router)
     app.include_router(optimization.router)
     app.include_router(feedback.router)
+    app.include_router(eval.router)
     return app
 
 

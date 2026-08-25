@@ -30,6 +30,8 @@ from xerama.domain.analytics import EpisodeMetric
 from xerama.domain.auth import AuthSession, ProjectMembership, User
 from xerama.domain.cost import CostRecord
 from xerama.domain.episode_render import EpisodeRender
+from xerama.domain.enums import ModelRole
+from xerama.domain.eval import EvalRunResult
 from xerama.domain.feedback import HumanFeedback
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
@@ -2419,3 +2421,78 @@ class SQLAlchemyProjectMembershipRepository:
                 m.ProjectMembership.user_id == user_id,
             )
         )
+
+
+def _eval_run_result(row: m.EvalRunResult) -> EvalRunResult:
+    return EvalRunResult(
+        id=row.id,
+        case_id=row.case_id,
+        role=ModelRole(row.role),
+        dataset_version=row.dataset_version,
+        provider=row.provider,
+        model=row.model,
+        schema_valid=row.schema_valid,
+        quality_score=row.quality_score,
+        quality_reasons=row.quality_reasons,
+        latency_ms=row.latency_ms,
+        error=row.error,
+        raw_response_excerpt=row.raw_response_excerpt,
+        human_preference=row.human_preference,
+        created_at=row.created_at,
+    )
+
+
+class SQLAlchemyEvalRunRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        case_id: str,
+        role: str,
+        dataset_version: str,
+        provider: str,
+        model: str,
+        schema_valid: bool,
+        quality_score: float | None = None,
+        quality_reasons: list[str] | None = None,
+        latency_ms: float | None = None,
+        error: str = "",
+        raw_response_excerpt: str = "",
+    ) -> EvalRunResult:
+        row = m.EvalRunResult(
+            case_id=case_id,
+            role=role,
+            dataset_version=dataset_version,
+            provider=provider,
+            model=model,
+            schema_valid=schema_valid,
+            quality_score=quality_score,
+            quality_reasons=quality_reasons or [],
+            latency_ms=latency_ms,
+            error=error,
+            raw_response_excerpt=raw_response_excerpt,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _eval_run_result(row)
+
+    async def list_by_role(self, role: str) -> list[EvalRunResult]:
+        result = await self._session.execute(
+            select(m.EvalRunResult)
+            .where(m.EvalRunResult.role == role)
+            .order_by(m.EvalRunResult.created_at)
+        )
+        return [_eval_run_result(row) for row in result.scalars()]
+
+    async def list_all(self) -> list[EvalRunResult]:
+        result = await self._session.execute(select(m.EvalRunResult).order_by(m.EvalRunResult.created_at))
+        return [_eval_run_result(row) for row in result.scalars()]
+
+    async def set_human_preference(self, run_id: str, preference: str) -> EvalRunResult:
+        row = await self._session.get(m.EvalRunResult, run_id)
+        if row is None:
+            raise ValueError(f"eval run {run_id} not found")
+        row.human_preference = preference
+        await self._session.flush()
+        return _eval_run_result(row)

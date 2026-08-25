@@ -21,6 +21,7 @@ from xerama.domain.analytics import EpisodeMetric
 from xerama.domain.auth import AuthSession, ProjectMembership, User
 from xerama.domain.cost import CostRecord
 from xerama.domain.episode_render import EpisodeRender
+from xerama.domain.eval import EvalRunResult
 from xerama.domain.feedback import HumanFeedback
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
@@ -738,6 +739,33 @@ class HumanFeedbackRepository(Protocol):
     async def list_by_asset(self, asset_id: str) -> list[HumanFeedback]: ...
 
     async def list_by_project(self, project_id: str) -> list[HumanFeedback]: ...
+
+
+class EvalRunRepository(Protocol):
+    """See MODULE-072. Append-only - every eval run is its own row,
+    never overwritten, so a benchmark's history survives a later
+    re-run."""
+
+    async def create(
+        self,
+        case_id: str,
+        role: str,
+        dataset_version: str,
+        provider: str,
+        model: str,
+        schema_valid: bool,
+        quality_score: float | None = None,
+        quality_reasons: list[str] | None = None,
+        latency_ms: float | None = None,
+        error: str = "",
+        raw_response_excerpt: str = "",
+    ) -> EvalRunResult: ...
+
+    async def list_by_role(self, role: str) -> list[EvalRunResult]: ...
+
+    async def list_all(self) -> list[EvalRunResult]: ...
+
+    async def set_human_preference(self, run_id: str, preference: str) -> EvalRunResult: ...
 
 
 class UserRepository(Protocol):

@@ -29,6 +29,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyCostRecordRepository,
     SQLAlchemyEpisodeRenderRepository,
     SQLAlchemyEpisodeRepository,
+    SQLAlchemyEvalRunRepository,
     SQLAlchemyHumanFeedbackRepository,
     SQLAlchemyJobRepository,
     SQLAlchemyMediaQCRepository,
@@ -51,6 +52,8 @@ from xerama.services.asset_service import AssetService
 from xerama.services.audio_production_service import AudioProductionService
 from xerama.services.auth_service import AuthService
 from xerama.services.character_casting_service import CharacterCastingService
+from xerama.pipeline.eval_harness import EvalHarness
+from xerama.services.eval_service import EvalService
 from xerama.services.analytics_service import (
     AnalyticsIngestionService,
     RetentionAnalyticsService,
@@ -350,6 +353,16 @@ def get_episode_engine(
         episode_repo=SQLAlchemyEpisodeRepository(session),
         job_repo=SQLAlchemyJobRepository(session),
     )
+
+
+def get_eval_service(
+    session: AsyncSession = Depends(get_session), gateway: AIGateway = Depends(get_gateway)
+) -> EvalService:
+    # "openrouter" matches AIGateway's own default `provider_name` -
+    # the app never overrides it (app.py's lifespan), so this is the
+    # gateway's actual provider label, not a guess.
+    harness = EvalHarness(gateway=gateway, provider_name="openrouter")
+    return EvalService(harness=harness, repo=SQLAlchemyEvalRunRepository(session))
 
 
 def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthService:

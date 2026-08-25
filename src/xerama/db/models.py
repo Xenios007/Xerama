@@ -675,6 +675,27 @@ class HumanFeedback(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
+class EvalRunResult(Base):
+    """See MODULE-072. Append-only - every benchmark run is its own row."""
+
+    __tablename__ = "eval_run_results"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    case_id: Mapped[str] = mapped_column(String(128), index=True)
+    role: Mapped[str] = mapped_column(String(64), index=True)
+    dataset_version: Mapped[str] = mapped_column(String(32), index=True)
+    provider: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(128), index=True)
+    schema_valid: Mapped[bool] = mapped_column(Boolean)
+    quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quality_reasons: Mapped[list] = mapped_column(JSON, default=list)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+    raw_response_excerpt: Mapped[str] = mapped_column(Text, default="")
+    human_preference: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 class User(Base):
     """See MODULE-067. Only exists/matters in "hosted" mode - local
     single-user mode never creates a row here."""

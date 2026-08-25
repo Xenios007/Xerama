@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-071 (Testing Architecture)._
+_Last updated: 2026-08-25 - MODULE-072 (AI Evaluation Framework)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -2138,6 +2138,56 @@ run surfaced.
   (`test_cli.py`); full suite green (618 passed, up from 615). Frontend:
   27 tests / 7 files, typecheck/lint/build all clean.
 
+### MODULE-072 - AI Evaluation Framework
+
+- **`eval/datasets.py`** (new package) - a versioned (`DATASET_VERSION =
+  "v1"`) set of `EvalCase`s for the LLM roles that actually make a call
+  in this codebase today: `CONCEPT_GENERATOR_A` (3 cases),
+  `JUDGE` (3 cases), `EPISODE_WRITER` (2 cases) - "concepts, judge, ...
+  and scripts." `CONTINUITY_CHECKER` is deliberately absent and
+  documented as such in the module's own docstring: `ModelRole.CONTINUITY_CHECKER`
+  is defined in `config.py`/`domain/enums.py` but no pipeline stage has
+  ever called `AIGateway.generate(role=CONTINUITY_CHECKER, ...)` -
+  continuity validation is a deterministic check
+  (`pipeline/director_validators.py`), the same "deterministic
+  heuristics preferred over LLM calls" choice as MODULE-063/065. There
+  is nothing to benchmark until a real LLM-based continuity role
+  exists; the harness is role-generic, so that role would plug into
+  this exact framework with a new dataset entry, not a framework
+  change.
+- **`pipeline/eval_quality.py`** - deterministic 0-10 rubric scoring per
+  schema (`score_concept_candidate`/`score_judge_result`/
+  `score_episode_script`), each returning `(score, reasons)` - never one
+  opaque number, same ADR-018 "never one opaque score" discipline
+  applied to eval output instead of QC output.
+- **`pipeline/eval_harness.py`** - `EvalHarness.run_case` runs one case
+  through the *real* `AIGateway` (schema success = did it succeed within
+  the gateway's own normal retry budget, not a separate one-shot-only
+  measurement) and scores the result. **`pipeline/eval_aggregation.py`**
+  - `summarize_by_role` groups strictly by `(role, provider, model,
+  dataset_version)` - "compare models by logical role, not one global
+  winner": the same model at two different roles is verified to never
+  average into one row (`test_summarize_by_role_never_averages_across_roles`).
+- **`domain/eval.py` / new `eval_run_results` table** (migration
+  `ecf003ea9787`) - append-only, one row per run; `human_preference` is
+  never set by the harness itself, only by an explicit
+  `POST /eval/runs/{id}/human-preference` call from a reviewer.
+- **`POST /eval/roles/{role}/run`, `GET /eval/roles/{role}/benchmark`,
+  `POST /eval/runs/{id}/human-preference`** - "live eval opt-in": a
+  benchmark run only ever happens via this explicit endpoint, never
+  automatically. Not project-scoped (a benchmark compares a model role,
+  not any user's production data - same reasoning as MODULE-067's
+  `GET /jobs/queued`); in hosted mode it still requires *some*
+  authenticated caller (a live run spends real provider credits) rather
+  than an invented project/admin-role check.
+- Acceptance criterion met: "model changes can be justified by benchmark
+  evidence rather than intuition" - verified by 26 new tests (16 pure
+  dataset/rubric/aggregation, 7 harness/service/repository against a
+  real DB with `FakeLLMProvider`, 3 end-to-end API) - full suite green
+  (644 passed, up from 618). "Deterministic harness tests using stored/
+  fake outputs" is satisfied literally: every eval test uses
+  `FakeLLMProvider`, never a real network call.
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2172,7 +2222,8 @@ run surfaced.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Eval frameworks (MODULE-072-076), backup/migration/docs/release
+- Media eval framework, integration/E2E/failure-simulation testing
+  (MODULE-073-076), backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
