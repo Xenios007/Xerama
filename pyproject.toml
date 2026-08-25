@@ -41,3 +41,12 @@ where = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    # MODULE-074 - "verify boundaries between API, DB, queue, workers,
+    # storage, providers" as a group, not only in isolated unit tests.
+    # Every integration test still runs against fakes/a scratch DB - CI-
+    # safe by construction, not by being skipped. Run with `pytest -m
+    # integration` (or `pytest -m "not integration"` for the fast unit-
+    # only subset) - see docs/TESTING.md.
+    "integration: cross-subsystem tests (API+DB+queue+worker+storage)",
+]

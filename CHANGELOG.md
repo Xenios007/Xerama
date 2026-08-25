@@ -4,6 +4,23 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-074 - Integration Testing)
+
+- `tests/test_integration.py` (`@pytest.mark.integration`, registered
+  marker) - `pytest -m integration` / `-m "not integration"` give a
+  dedicated command for cross-subsystem tests.
+- Story pipeline and media-generation/QC lifecycle re-verified with a
+  fresh session reading back what an earlier session/commit wrote.
+- New: a full worker-crash-and-resume integration test ("worker A"
+  claims and crashes, "worker B" - a separate session/instance -
+  reclaims the abandoned lease and completes the job) - closes a real
+  gap plain repository-level lease tests didn't fully close.
+- New: real FFmpeg/ffprobe tests, `skipif` when the binaries aren't
+  installed (verified to skip cleanly here), synthesizing the test clip
+  via ffmpeg's own `lavfi` generator.
+- 5 new tests (3 always-run, 2 conditionally-skipped); full suite green
+  (668 passed + 2 skipped, up from 665 passed).
+
 ### Added (MODULE-073 - Media Evaluation Framework)
 
 - `domain/enums.py::ShotClass` (identity/dialogue/motion/establishing/

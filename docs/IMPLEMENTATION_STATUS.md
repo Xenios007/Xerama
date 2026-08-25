@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-073 (Media Evaluation Framework)._
+_Last updated: 2026-08-25 - MODULE-074 (Integration Testing)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -2240,6 +2240,50 @@ media benchmarks."
   fixture outputs" satisfied literally - no real provider call anywhere
   in the test suite.
 
+### MODULE-074 - Integration Testing
+
+Most cross-subsystem boundaries were already exercised together via the
+E2E layer (`test_api.py` already drives story-pipeline-through-
+persistence and media-generation-through-QC end to end through a real
+HTTP client against a real DB). The genuine gap was **proving a boundary
+claim explicitly** - reading back through a *fresh* session/connection,
+not the same one that wrote the data - plus two scenarios nothing
+covered at all: a full worker-crash-and-resume loop, and the real
+FFmpeg/ffprobe binaries.
+
+- **`tests/test_integration.py`** (new, `@pytest.mark.integration`,
+  registered in `pyproject.toml`) - `pytest -m integration` /
+  `pytest -m "not integration"` now give a dedicated command for this
+  layer (this module's own "dedicated integration test command
+  documented and CI-safe" requirement) - see `docs/TESTING.md` section 6.
+- **Story pipeline through persistence** + **queued fake media
+  generation through the asset/QC lifecycle** - both re-verified with a
+  brand-new session reading back what an earlier session/commit wrote,
+  closing the "did this actually round-trip through the DB, or just
+  read back the same in-memory Python object" gap plain unit/E2E tests
+  don't need to close (they aren't making a cross-boundary claim).
+- **API-worker restart/resume (the real gap)** - `test_job_worker.py`
+  already covered `JobRepository.recover_abandoned` at the repository
+  level and `JobWorker.reclaim_abandoned` delegating to it, but nothing
+  closed the *full* loop: "worker A" claims a job and crashes (own
+  session, immediately-expired lease simulating real wall-clock time
+  passing) -> a completely separate "worker B" instance (own session and
+  `JobWorker`, matching how a restarted process reconnects) reclaims the
+  abandoned lease and processes the job to completion -> a third, fresh
+  session confirms the final `SUCCEEDED` status and result. This is the
+  scenario the module's "API-worker restart/resume" line actually names.
+- **Real FFmpeg/ffprobe, conditionally** - `@pytest.mark.skipif` on
+  `shutil.which(...)`, so it's a no-op (not a failure) on a machine
+  without the binaries (this dev environment included - both tests
+  verified to skip cleanly) and actually exercises the real
+  `FFmpegFrameExtractor`/`FFprobeInspector` on a machine that has them,
+  synthesizing the test clip via ffmpeg's own `lavfi` test-source
+  generator so no external sample-video fixture is needed either way.
+- Acceptance criterion met: "major subsystem interfaces are exercised
+  together, not only in isolated unit tests" - 5 new tests (3 always-run,
+  2 conditionally-skipped); full suite green (668 passed + 2 skipped, up
+  from 665 passed).
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2274,7 +2318,7 @@ media benchmarks."
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Integration/E2E/failure-simulation testing (MODULE-074-076),
+- E2E-production/failure-simulation testing (MODULE-075-076),
   backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;

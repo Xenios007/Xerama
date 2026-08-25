@@ -1,16 +1,19 @@
 # Testing Architecture (MODULE-071)
 
 "Contributors/agents can verify changes reproducibly without paid APIs."
-This document is the map of how ~87 backend test files (618 tests) and
-7 frontend test files (27 tests) are organized, what each layer covers,
-and how to run all of it from a clean checkout.
+This document is the map of how ~94 backend test files (668 tests + 2
+conditionally-skipped) and 7 frontend test files (27 tests) are
+organized, what each layer covers, and how to run all of it from a
+clean checkout.
 
 ## 1. Running everything
 
 ```bash
 # Backend
 pip install -e ".[dev]"
-pytest -q                              # 618 tests, ~100s, no network/paid API needed
+pytest -q                              # every test, unit + integration
+pytest -m "not integration" -q         # fast unit-only subset
+pytest -m integration -q               # MODULE-074 - cross-subsystem tests only
 pytest --cov=xerama --cov-report=term-missing   # coverage (pytest-cov, MODULE-071)
 
 # Frontend
@@ -145,7 +148,41 @@ fine:
   rather than tested, since a coverage report is not a reason to keep
   dead code alive).
 
-## 6. Critical state transitions and failure paths - already covered
+## 6. Integration tests (MODULE-074)
+
+`tests/test_integration.py` (`@pytest.mark.integration`, registered in
+`pyproject.toml`) verifies boundaries *between* subsystems specifically -
+every test opens a **fresh** session/connection to read back what an
+earlier session wrote, proving the data actually round-tripped through
+the DB rather than just still being held as an in-memory Python object
+by the writing test (a subtlety layer-2/3 tests elsewhere in the suite
+don't need to prove explicitly, since they aren't making a boundary
+claim):
+
+- **Story pipeline through persistence** - a full `Showrunner.run()`
+  (concept -> judge -> bible -> cast -> season plan -> outlines ->
+  episode 1 script/shot plan), then a brand-new session reads the series/
+  episodes/bible back.
+- **Queued fake media generation through the asset/QC lifecycle** -
+  ingest -> QC check -> accept, then a fresh session confirms both the
+  `Asset.status` transition and the `MediaQCAttempt` row persisted.
+- **API-worker restart/resume** - the scenario a plain repository-level
+  `recover_abandoned` test can't fully prove: "worker A" claims a job and
+  crashes (lease immediately expired, simulating time passing after a
+  real crash) using its own session; a completely separate "worker B"
+  instance (its own session and `JobWorker`, matching how a restarted
+  process reconnects) reclaims the abandoned lease and processes the job
+  to completion; a third, fresh session confirms the final `SUCCEEDED`
+  status and result.
+- **Real FFmpeg/ffprobe, conditionally** - `@pytest.mark.skipif` on
+  `shutil.which("ffmpeg")`/`"ffprobe"`, so this is a no-op (not a
+  failure) in the common case where the binaries aren't installed, and
+  actually exercises `FFmpegFrameExtractor`/`FFprobeInspector` for real
+  on a machine that has them - synthesizing the test clip via ffmpeg's
+  own `lavfi` test-source generator, so no external sample-video fixture
+  is needed either way.
+
+## 7. Critical state transitions and failure paths - already covered
 
 Spot-checked rather than re-derived (this module is `AUDIT/EXTEND`, not
 `BUILD` - the coverage below already existed from each owning module):
