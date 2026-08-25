@@ -23,6 +23,7 @@ from xerama.services.media_router import MediaProviderRouter
 from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyAssetRepository,
     SQLAlchemyAudioProductionRepository,
+    SQLAlchemyAuthSessionRepository,
     SQLAlchemyCharacterCastingRepository,
     SQLAlchemyConceptRepository,
     SQLAlchemyCostRecordRepository,
@@ -33,6 +34,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyMediaQCRepository,
     SQLAlchemyMetricsRepository,
     SQLAlchemyMusicCueRepository,
+    SQLAlchemyProjectMembershipRepository,
     SQLAlchemyProjectRepository,
     SQLAlchemySeasonRepository,
     SQLAlchemySeriesRepository,
@@ -40,12 +42,14 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyStoryboardRepository,
     SQLAlchemyStyleBibleRepository,
     SQLAlchemySubtitleCueRepository,
+    SQLAlchemyUserRepository,
     SQLAlchemyVideoProductionRepository,
     SQLAlchemyVoiceProfileRepository,
 )
 from xerama.services.assembly_service import EpisodeAssemblyService
 from xerama.services.asset_service import AssetService
 from xerama.services.audio_production_service import AudioProductionService
+from xerama.services.auth_service import AuthService
 from xerama.services.character_casting_service import CharacterCastingService
 from xerama.services.analytics_service import (
     AnalyticsIngestionService,
@@ -92,6 +96,12 @@ def get_asset_service(
     storage: LocalStorageProvider = Depends(get_storage_provider),
 ) -> AssetService:
     return AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session))
+
+
+def get_character_casting_repo(
+    session: AsyncSession = Depends(get_session),
+) -> SQLAlchemyCharacterCastingRepository:
+    return SQLAlchemyCharacterCastingRepository(session)
 
 
 def get_character_casting_service(
@@ -339,6 +349,14 @@ def get_episode_engine(
         series_repo=SQLAlchemySeriesRepository(session),
         episode_repo=SQLAlchemyEpisodeRepository(session),
         job_repo=SQLAlchemyJobRepository(session),
+    )
+
+
+def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthService:
+    return AuthService(
+        user_repo=SQLAlchemyUserRepository(session),
+        session_repo=SQLAlchemyAuthSessionRepository(session),
+        membership_repo=SQLAlchemyProjectMembershipRepository(session),
     )
 
 

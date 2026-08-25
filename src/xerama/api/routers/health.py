@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from xerama.api.authorization import require_project_role
 from xerama.api.deps import get_observability_service, get_session
+from xerama.domain.enums import ProjectRole
 from xerama.services.observability_service import ObservabilityService, ObservabilitySnapshot
 
 router = APIRouter(tags=["health"])
@@ -28,7 +30,11 @@ async def readiness(session: AsyncSession = Depends(get_session)) -> dict:
     return {"status": "ready"}
 
 
-@router.get("/projects/{project_id}/observability", response_model=ObservabilitySnapshot)
+@router.get(
+    "/projects/{project_id}/observability",
+    response_model=ObservabilitySnapshot,
+    dependencies=[Depends(require_project_role(ProjectRole.VIEWER))],
+)
 async def get_project_observability(
     project_id: str, service: ObservabilityService = Depends(get_observability_service)
 ) -> ObservabilitySnapshot:

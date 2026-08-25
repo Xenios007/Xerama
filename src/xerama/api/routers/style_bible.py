@@ -3,7 +3,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from xerama.api.authorization import require_series_role
 from xerama.api.deps import get_style_bible_service
+from xerama.domain.enums import ProjectRole
 from xerama.domain.style_bible import StyleBible
 from xerama.services.style_bible_service import StyleBibleService
 
@@ -21,14 +23,14 @@ class StyleBibleUpdateRequest(BaseModel):
     negatives: list[str] | None = None
 
 
-@router.get("", response_model=StyleBible)
+@router.get("", response_model=StyleBible, dependencies=[Depends(require_series_role(ProjectRole.VIEWER))])
 async def get_style_bible(
     series_id: str, service: StyleBibleService = Depends(get_style_bible_service)
 ) -> StyleBible:
     return await service.get_or_create(series_id)
 
 
-@router.patch("", response_model=StyleBible)
+@router.patch("", response_model=StyleBible, dependencies=[Depends(require_series_role(ProjectRole.EDITOR))])
 async def update_style_bible(
     series_id: str,
     body: StyleBibleUpdateRequest,
@@ -40,14 +42,18 @@ async def update_style_bible(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@router.post("/lock", response_model=StyleBible)
+@router.post(
+    "/lock", response_model=StyleBible, dependencies=[Depends(require_series_role(ProjectRole.EDITOR))]
+)
 async def lock_style_bible(
     series_id: str, service: StyleBibleService = Depends(get_style_bible_service)
 ) -> StyleBible:
     return await service.lock(series_id)
 
 
-@router.post("/unlock", response_model=StyleBible)
+@router.post(
+    "/unlock", response_model=StyleBible, dependencies=[Depends(require_series_role(ProjectRole.EDITOR))]
+)
 async def unlock_style_bible_for_recast(
     series_id: str, service: StyleBibleService = Depends(get_style_bible_service)
 ) -> StyleBible:

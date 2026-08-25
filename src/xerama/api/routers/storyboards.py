@@ -7,6 +7,7 @@ keyframe -> QC state -> accept/retry."
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from xerama.api.authorization import get_current_user, get_project_membership_repo
 from xerama.api.deps import (
     get_cost_service,
     get_episode_repo,
@@ -18,10 +19,17 @@ from xerama.api.deps import (
 )
 from xerama.api.shot_lookup import episode_context, find_shot
 from xerama.domain.asset import Asset
+from xerama.domain.auth import User
+from xerama.domain.enums import ProjectRole
 from xerama.domain.storyboard import Storyboard
 from xerama.pipeline.prompt_compiler import PromptCompiler
 from xerama.providers.image import ImageProvider
-from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository, StyleBibleRepository
+from xerama.repositories.interfaces import (
+    EpisodeRepository,
+    ProjectMembershipRepository,
+    SeriesRepository,
+    StyleBibleRepository,
+)
 from xerama.services.cost_service import CostRecordService
 from xerama.services.media_qc_service import QCGateBlockedError
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
@@ -53,7 +61,15 @@ async def create_storyboard(
     shot_number: int,
     body: StoryboardCreateRequest | None = None,
     service: StoryboardService = Depends(get_storyboard_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Storyboard:
+    await episode_context(
+        episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
     layout_description = body.layout_description if body else ""
     return await service.get_or_create_storyboard(
         episode_id, scene_number, shot_number, layout_description
@@ -62,19 +78,38 @@ async def create_storyboard(
 
 @router.get("/episodes/{episode_id}/storyboards", response_model=list[Storyboard])
 async def list_storyboards(
-    episode_id: str, service: StoryboardService = Depends(get_storyboard_service)
+    episode_id: str,
+    service: StoryboardService = Depends(get_storyboard_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> list[Storyboard]:
+    await episode_context(
+        episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.VIEWER,
+    )
     return await service.list_by_episode(episode_id)
 
 
 @router.get("/storyboards/{storyboard_id}", response_model=Storyboard)
 async def get_storyboard(
-    storyboard_id: str, service: StoryboardService = Depends(get_storyboard_service)
+    storyboard_id: str,
+    service: StoryboardService = Depends(get_storyboard_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Storyboard:
     try:
-        return await service.get(storyboard_id)
+        storyboard = await service.get(storyboard_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await episode_context(
+        storyboard.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.VIEWER,
+    )
+    return storyboard
 
 
 @router.post("/storyboards/{storyboard_id}/keyframes/generate", response_model=Asset)
@@ -86,13 +121,18 @@ async def generate_keyframe(
     style_bible_repo: StyleBibleRepository = Depends(get_style_bible_repo),
     image_router: MediaProviderRouter[ImageProvider] = Depends(get_image_router),
     cost_service: CostRecordService = Depends(get_cost_service),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Asset:
     try:
         storyboard = await service.get(storyboard_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    episode, series = await episode_context(storyboard.episode_id, episode_repo, series_repo)
+    episode, series = await episode_context(
+        storyboard.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
     plan = await episode_repo.get_shot_plan(storyboard.episode_id)
     if plan is None:
         raise HTTPException(status_code=409, detail="episode has no shot plan yet")
@@ -133,6 +173,8 @@ async def generate_keyframe_with_auto_heal(
     style_bible_repo: StyleBibleRepository = Depends(get_style_bible_repo),
     image_router: MediaProviderRouter[ImageProvider] = Depends(get_image_router),
     retake_service: AutomaticRetakeService = Depends(get_retake_service),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Asset:
     """MODULE-045 - generate, QC-gate, and automatically repair-and-retry
     a keyframe (stronger refs / prompt repair / alternate provider / full
@@ -144,7 +186,10 @@ async def generate_keyframe_with_auto_heal(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    episode, series = await episode_context(storyboard.episode_id, episode_repo, series_repo)
+    episode, series = await episode_context(
+        storyboard.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
     plan = await episode_repo.get_shot_plan(storyboard.episode_id)
     if plan is None:
         raise HTTPException(status_code=409, detail="episode has no shot plan yet")
@@ -182,6 +227,8 @@ async def edit_keyframe(
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
     image_router: MediaProviderRouter[ImageProvider] = Depends(get_image_router),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Asset:
     """Targeted repair of one existing take (MODULE-030) - full regenerate
     already exists via `/keyframes/generate` retries; this is the
@@ -191,7 +238,10 @@ async def edit_keyframe(
         storyboard = await service.get(storyboard_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    _, series = await episode_context(storyboard.episode_id, episode_repo, series_repo)
+    _, series = await episode_context(
+        storyboard.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
 
     try:
         return await service.edit_keyframe(
@@ -220,6 +270,8 @@ async def upload_keyframe(
     service: StoryboardService = Depends(get_storyboard_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Asset:
     """Manual upload fallback - a first-class path, not degraded, so the
     workflow is never blocked purely by image-provider availability."""
@@ -227,7 +279,10 @@ async def upload_keyframe(
         storyboard = await service.get(storyboard_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    _, series = await episode_context(storyboard.episode_id, episode_repo, series_repo)
+    _, series = await episode_context(
+        storyboard.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
 
     data = await file.read()
     ext = "." + file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else ""
@@ -247,19 +302,38 @@ async def list_keyframes(
     service: StoryboardService = Depends(get_storyboard_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> list[Asset]:
     try:
         storyboard = await service.get(storyboard_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    _, series = await episode_context(storyboard.episode_id, episode_repo, series_repo)
+    _, series = await episode_context(
+        storyboard.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.VIEWER,
+    )
     return await service.list_keyframes(series.project_id, storyboard)
 
 
 @router.post("/storyboards/{storyboard_id}/keyframes/{asset_id}/accept", response_model=Storyboard)
 async def accept_keyframe(
-    storyboard_id: str, asset_id: str, service: StoryboardService = Depends(get_storyboard_service)
+    storyboard_id: str,
+    asset_id: str,
+    service: StoryboardService = Depends(get_storyboard_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Storyboard:
+    try:
+        storyboard = await service.get(storyboard_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await episode_context(
+        storyboard.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
     try:
         return await service.accept_keyframe(storyboard_id, asset_id)
     except QCGateBlockedError as exc:
@@ -274,9 +348,17 @@ async def reject_keyframe(
     asset_id: str,
     reason: str,
     service: StoryboardService = Depends(get_storyboard_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Asset:
     try:
-        await service.get(storyboard_id)  # 404s if the storyboard itself is unknown
+        storyboard = await service.get(storyboard_id)  # 404s if the storyboard itself is unknown
+        await episode_context(
+            storyboard.episode_id, episode_repo, series_repo,
+            user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+        )
         return await service.reject_keyframe(asset_id, reason)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

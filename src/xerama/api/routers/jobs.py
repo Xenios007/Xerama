@@ -4,9 +4,12 @@ fetch) already exists in `inspect.py` - not duplicated here."""
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from xerama.api.authorization import authorize_project_access, get_current_user, get_project_membership_repo
 from xerama.api.deps import get_job_repo
-from xerama.domain.enums import JobStage, JobStatus
-from xerama.repositories.interfaces import JobRecord, JobRepository
+from xerama.config import get_settings
+from xerama.domain.auth import User
+from xerama.domain.enums import JobStage, JobStatus, ProjectRole
+from xerama.repositories.interfaces import JobRecord, JobRepository, ProjectMembershipRepository
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -23,8 +26,12 @@ class EnqueueJobRequest(BaseModel):
 
 @router.post("/enqueue", response_model=JobRecord)
 async def enqueue_job(
-    body: EnqueueJobRequest, job_repo: JobRepository = Depends(get_job_repo)
+    body: EnqueueJobRequest,
+    job_repo: JobRepository = Depends(get_job_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> JobRecord:
+    await authorize_project_access(body.project_id, ProjectRole.EDITOR, user, membership_repo)
     try:
         return await job_repo.enqueue(
             body.project_id,
@@ -45,11 +52,19 @@ async def list_jobs(
     stage: JobStage | None = None,
     status: JobStatus | None = None,
     job_repo: JobRepository = Depends(get_job_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> list[JobRecord]:
     """See MODULE-054 - "list/get jobs by project/episode/stage/status."
     `episode_id` filtering isn't supported - `GenerationJob` isn't
     episode-scoped in the schema (only project/series), so this filters
-    by project/stage/status; any combination, or none for everything."""
+    by project/stage/status; any combination, or none for everything.
+    In hosted mode `project_id` is required - an unscoped query would
+    otherwise return every tenant's jobs."""
+    if project_id is not None:
+        await authorize_project_access(project_id, ProjectRole.VIEWER, user, membership_repo)
+    elif get_settings().xerama_mode == "hosted":
+        raise HTTPException(status_code=400, detail="project_id is required in hosted mode")
     return await job_repo.list_filtered(project_id=project_id, stage=stage, status=status)
 
 
@@ -57,18 +72,40 @@ async def list_jobs(
 async def list_queued_jobs(
     stage: JobStage | None = None, job_repo: JobRepository = Depends(get_job_repo)
 ) -> list[JobRecord]:
+    """Operational/worker-claim view across every tenant's queue - not
+    project-scoped in the underlying data model (`JobRepository.list_queued`
+    takes no project filter), so per-project authorization does not apply
+    here; this stays a documented gap for hosted mode (see MODULE-067 in
+    docs/IMPLEMENTATION_STATUS.md) rather than an invented admin-role
+    system out of scope for this module."""
     return await job_repo.list_queued(stage)
 
 
 @router.get("/failed", response_model=list[JobRecord])
 async def list_failed_jobs(
-    project_id: str | None = None, job_repo: JobRepository = Depends(get_job_repo)
+    project_id: str | None = None,
+    job_repo: JobRepository = Depends(get_job_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> list[JobRecord]:
+    if project_id is not None:
+        await authorize_project_access(project_id, ProjectRole.VIEWER, user, membership_repo)
+    elif get_settings().xerama_mode == "hosted":
+        raise HTTPException(status_code=400, detail="project_id is required in hosted mode")
     return await job_repo.list_failed(project_id)
 
 
 @router.post("/{job_id}/cancel", response_model=JobRecord)
-async def cancel_job(job_id: str, job_repo: JobRepository = Depends(get_job_repo)) -> JobRecord:
+async def cancel_job(
+    job_id: str,
+    job_repo: JobRepository = Depends(get_job_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
+) -> JobRecord:
+    job = await job_repo.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    await authorize_project_access(job.project_id, ProjectRole.EDITOR, user, membership_repo)
     try:
         return await job_repo.cancel(job_id)
     except ValueError as exc:

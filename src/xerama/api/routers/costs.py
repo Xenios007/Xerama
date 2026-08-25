@@ -8,14 +8,20 @@ accepted video second, and total cost per episode (ADR-024).
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from xerama.api.authorization import require_project_role
 from xerama.api.deps import get_asset_service, get_cost_service
 from xerama.domain.asset import AssetStatus, AssetType
 from xerama.domain.cost import CostRecord
+from xerama.domain.enums import ProjectRole
 from xerama.pipeline.cost_aggregation import AcceptedOutputCost, cost_per_episode, summarize_cost_per_accepted
 from xerama.services.asset_service import AssetService
 from xerama.services.cost_service import CostRecordService
 
-router = APIRouter(prefix="/projects/{project_id}/costs", tags=["costs"])
+router = APIRouter(
+    prefix="/projects/{project_id}/costs",
+    tags=["costs"],
+    dependencies=[Depends(require_project_role(ProjectRole.VIEWER))],
+)
 
 
 class CostSummaryResponse(BaseModel):

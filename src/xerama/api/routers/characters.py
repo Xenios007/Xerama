@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from xerama.api.authorization import require_character_role
 from xerama.api.deps import get_character_casting_service
 from xerama.domain.character import (
     Character,
@@ -11,6 +12,7 @@ from xerama.domain.character import (
     PhysicalStateVariant,
     WardrobeVariant,
 )
+from xerama.domain.enums import ProjectRole
 from xerama.services.character_casting_service import CharacterCastingService
 
 router = APIRouter(prefix="/characters", tags=["characters"])
@@ -28,7 +30,11 @@ class VariantCreateRequest(BaseModel):
     description: str = ""
 
 
-@router.get("/{character_id}", response_model=Character)
+@router.get(
+    "/{character_id}",
+    response_model=Character,
+    dependencies=[Depends(require_character_role(ProjectRole.VIEWER))],
+)
 async def get_character(
     character_id: str, service: CharacterCastingService = Depends(get_character_casting_service)
 ) -> Character:
@@ -38,7 +44,11 @@ async def get_character(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/{character_id}/lock", response_model=Character)
+@router.post(
+    "/{character_id}/lock",
+    response_model=Character,
+    dependencies=[Depends(require_character_role(ProjectRole.EDITOR))],
+)
 async def lock_character(
     character_id: str, service: CharacterCastingService = Depends(get_character_casting_service)
 ) -> Character:
@@ -48,7 +58,11 @@ async def lock_character(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/{character_id}/unlock", response_model=Character)
+@router.post(
+    "/{character_id}/unlock",
+    response_model=Character,
+    dependencies=[Depends(require_character_role(ProjectRole.EDITOR))],
+)
 async def unlock_character_for_recast(
     character_id: str, service: CharacterCastingService = Depends(get_character_casting_service)
 ) -> Character:
@@ -59,7 +73,11 @@ async def unlock_character_for_recast(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.patch("/{character_id}/identity", response_model=Character)
+@router.patch(
+    "/{character_id}/identity",
+    response_model=Character,
+    dependencies=[Depends(require_character_role(ProjectRole.EDITOR))],
+)
 async def update_identity(
     character_id: str,
     body: IdentityUpdateRequest,
@@ -78,7 +96,11 @@ async def update_identity(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/{character_id}/provenance", response_model=Character)
+@router.post(
+    "/{character_id}/provenance",
+    response_model=Character,
+    dependencies=[Depends(require_character_role(ProjectRole.EDITOR))],
+)
 async def set_provenance(
     character_id: str,
     body: CharacterProvenance,
@@ -92,7 +114,11 @@ async def set_provenance(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/{character_id}/wardrobe", response_model=WardrobeVariant)
+@router.post(
+    "/{character_id}/wardrobe",
+    response_model=WardrobeVariant,
+    dependencies=[Depends(require_character_role(ProjectRole.EDITOR))],
+)
 async def add_wardrobe_variant(
     character_id: str,
     body: VariantCreateRequest,
@@ -106,14 +132,22 @@ async def add_wardrobe_variant(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.get("/{character_id}/wardrobe", response_model=list[WardrobeVariant])
+@router.get(
+    "/{character_id}/wardrobe",
+    response_model=list[WardrobeVariant],
+    dependencies=[Depends(require_character_role(ProjectRole.VIEWER))],
+)
 async def list_wardrobe_variants(
     character_id: str, service: CharacterCastingService = Depends(get_character_casting_service)
 ) -> list[WardrobeVariant]:
     return await service.list_wardrobe_variants(character_id)
 
 
-@router.post("/{character_id}/physical-states", response_model=PhysicalStateVariant)
+@router.post(
+    "/{character_id}/physical-states",
+    response_model=PhysicalStateVariant,
+    dependencies=[Depends(require_character_role(ProjectRole.EDITOR))],
+)
 async def add_physical_state_variant(
     character_id: str,
     body: VariantCreateRequest,
@@ -127,7 +161,11 @@ async def add_physical_state_variant(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.get("/{character_id}/physical-states", response_model=list[PhysicalStateVariant])
+@router.get(
+    "/{character_id}/physical-states",
+    response_model=list[PhysicalStateVariant],
+    dependencies=[Depends(require_character_role(ProjectRole.VIEWER))],
+)
 async def list_physical_state_variants(
     character_id: str, service: CharacterCastingService = Depends(get_character_casting_service)
 ) -> list[PhysicalStateVariant]:

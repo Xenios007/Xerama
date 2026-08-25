@@ -3,8 +3,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from xerama.api.authorization import require_character_role
 from xerama.api.deps import get_voice_profile_service
 from xerama.domain.character import CharacterProvenance
+from xerama.domain.enums import ProjectRole
 from xerama.domain.voice import VoiceProfile
 from xerama.services.voice_profile_service import VoiceProfileService
 
@@ -20,14 +22,16 @@ class VoiceProfileUpdateBody(BaseModel):
     provenance: CharacterProvenance | None = None
 
 
-@router.get("", response_model=VoiceProfile)
+@router.get("", response_model=VoiceProfile, dependencies=[Depends(require_character_role(ProjectRole.VIEWER))])
 async def get_voice_profile(
     character_id: str, service: VoiceProfileService = Depends(get_voice_profile_service)
 ) -> VoiceProfile:
     return await service.get_or_create(character_id)
 
 
-@router.patch("", response_model=VoiceProfile)
+@router.patch(
+    "", response_model=VoiceProfile, dependencies=[Depends(require_character_role(ProjectRole.EDITOR))]
+)
 async def update_voice_profile(
     character_id: str,
     body: VoiceProfileUpdateBody,
@@ -39,14 +43,22 @@ async def update_voice_profile(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@router.post("/lock", response_model=VoiceProfile)
+@router.post(
+    "/lock",
+    response_model=VoiceProfile,
+    dependencies=[Depends(require_character_role(ProjectRole.EDITOR))],
+)
 async def lock_voice_profile(
     character_id: str, service: VoiceProfileService = Depends(get_voice_profile_service)
 ) -> VoiceProfile:
     return await service.lock(character_id)
 
 
-@router.post("/unlock", response_model=VoiceProfile)
+@router.post(
+    "/unlock",
+    response_model=VoiceProfile,
+    dependencies=[Depends(require_character_role(ProjectRole.EDITOR))],
+)
 async def unlock_voice_profile_for_recast(
     character_id: str, service: VoiceProfileService = Depends(get_voice_profile_service)
 ) -> VoiceProfile:

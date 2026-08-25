@@ -7,11 +7,17 @@ and marks later committed episodes STALE rather than corrupting them).
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from xerama.api.authorization import require_project_role
 from xerama.api.deps import get_episode_engine
+from xerama.domain.enums import ProjectRole
 from xerama.pipeline.ai_gateway import XeramaGenerationError
 from xerama.pipeline.episode_engine import EpisodeEngine, EpisodeGenerationResult
 
-router = APIRouter(prefix="/series/{series_id}/episodes", tags=["episodes"])
+router = APIRouter(
+    prefix="/series/{series_id}/episodes",
+    tags=["episodes"],
+    dependencies=[Depends(require_project_role(ProjectRole.EDITOR))],
+)
 
 
 @router.post("/{episode_number}/generate", response_model=EpisodeGenerationResult)

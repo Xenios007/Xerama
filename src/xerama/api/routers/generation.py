@@ -9,8 +9,10 @@ earlier stages inspectable.
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from xerama.api.authorization import require_project_role
 from xerama.api.deps import get_project_repo, get_showrunner
 from xerama.domain.brief import CreativeBrief
+from xerama.domain.enums import ProjectRole
 from xerama.pipeline.ai_gateway import XeramaGenerationError
 from xerama.pipeline.orchestrator import PipelineResult, Showrunner
 from xerama.repositories.interfaces import ProjectRepository
@@ -18,7 +20,11 @@ from xerama.repositories.interfaces import ProjectRepository
 router = APIRouter(prefix="/projects", tags=["generation"])
 
 
-@router.post("/{project_id}/generate-series", response_model=PipelineResult)
+@router.post(
+    "/{project_id}/generate-series",
+    response_model=PipelineResult,
+    dependencies=[Depends(require_project_role(ProjectRole.EDITOR))],
+)
 async def generate_series(
     project_id: str,
     brief: CreativeBrief,

@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from xerama.api.authorization import get_current_user, get_project_membership_repo
 from xerama.api.deps import (
     get_audio_production_service,
     get_cost_service,
@@ -14,8 +15,10 @@ from xerama.api.deps import (
 from xerama.api.shot_lookup import episode_context, find_shot
 from xerama.domain.asset import Asset
 from xerama.domain.audio_production import ShotAudioProduction
+from xerama.domain.auth import User
+from xerama.domain.enums import ProjectRole
 from xerama.providers.voice import VoiceProvider
-from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository
+from xerama.repositories.interfaces import EpisodeRepository, ProjectMembershipRepository, SeriesRepository
 from xerama.services.audio_production_service import AudioProductionService
 from xerama.services.cost_service import CostRecordService
 from xerama.services.media_qc_service import QCGateBlockedError
@@ -40,10 +43,17 @@ async def create_audio_production(
     shot_number: int,
     service: AudioProductionService = Depends(get_audio_production_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> ShotAudioProduction:
     """Idempotent get-or-create. `audio_mode` is read from the approved
     shot plan (not client-supplied) so it always matches the Director's
     actual data."""
+    await episode_context(
+        episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
     plan = await episode_repo.get_shot_plan(episode_id)
     if plan is None:
         raise HTTPException(status_code=409, detail="episode has no shot plan yet")
@@ -55,19 +65,38 @@ async def create_audio_production(
 
 @router.get("/episodes/{episode_id}/audio-productions", response_model=list[ShotAudioProduction])
 async def list_audio_productions(
-    episode_id: str, service: AudioProductionService = Depends(get_audio_production_service)
+    episode_id: str,
+    service: AudioProductionService = Depends(get_audio_production_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> list[ShotAudioProduction]:
+    await episode_context(
+        episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.VIEWER,
+    )
     return await service.list_by_episode(episode_id)
 
 
 @router.get("/audio-productions/{production_id}", response_model=ShotAudioProduction)
 async def get_audio_production(
-    production_id: str, service: AudioProductionService = Depends(get_audio_production_service)
+    production_id: str,
+    service: AudioProductionService = Depends(get_audio_production_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> ShotAudioProduction:
     try:
-        return await service.get(production_id)
+        production = await service.get(production_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await episode_context(
+        production.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.VIEWER,
+    )
+    return production
 
 
 @router.post("/audio-productions/{production_id}/takes/generate", response_model=Asset)
@@ -79,13 +108,18 @@ async def generate_dialogue_take(
     series_repo: SeriesRepository = Depends(get_series_repo),
     voice_router: MediaProviderRouter[VoiceProvider] = Depends(get_voice_router),
     cost_service: CostRecordService = Depends(get_cost_service),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Asset:
     try:
         production = await service.get(production_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    episode, series = await episode_context(production.episode_id, episode_repo, series_repo)
+    episode, series = await episode_context(
+        production.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
     text = body.text
     if text is None:
         plan = await episode_repo.get_shot_plan(production.episode_id)
@@ -128,6 +162,8 @@ async def generate_dialogue_take_with_auto_heal(
     series_repo: SeriesRepository = Depends(get_series_repo),
     voice_router: MediaProviderRouter[VoiceProvider] = Depends(get_voice_router),
     retake_service: AutomaticRetakeService = Depends(get_retake_service),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Asset:
     """MODULE-045 - see storyboards.py's `generate_keyframe_with_auto_heal`;
     same generate -> QC-gate -> repair-and-retry loop for dialogue takes."""
@@ -136,7 +172,10 @@ async def generate_dialogue_take_with_auto_heal(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    episode, series = await episode_context(production.episode_id, episode_repo, series_repo)
+    episode, series = await episode_context(
+        production.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
     text = body.text
     if text is None:
         plan = await episode_repo.get_shot_plan(production.episode_id)
@@ -168,13 +207,18 @@ async def upload_dialogue_take(
     service: AudioProductionService = Depends(get_audio_production_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Asset:
     """Manual upload fallback - a first-class path, not degraded."""
     try:
         production = await service.get(production_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    _, series = await episode_context(production.episode_id, episode_repo, series_repo)
+    _, series = await episode_context(
+        production.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
 
     data = await file.read()
     ext = "." + file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else ""
@@ -190,12 +234,17 @@ async def list_dialogue_takes(
     service: AudioProductionService = Depends(get_audio_production_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> list[Asset]:
     try:
         production = await service.get(production_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    _, series = await episode_context(production.episode_id, episode_repo, series_repo)
+    _, series = await episode_context(
+        production.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.VIEWER,
+    )
     return await service.list_takes(series.project_id, production)
 
 
@@ -206,7 +255,19 @@ async def accept_dialogue_take(
     production_id: str,
     asset_id: str,
     service: AudioProductionService = Depends(get_audio_production_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> ShotAudioProduction:
+    try:
+        production = await service.get(production_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await episode_context(
+        production.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
     try:
         return await service.accept_take(production_id, asset_id)
     except QCGateBlockedError as exc:
@@ -221,9 +282,17 @@ async def reject_dialogue_take(
     asset_id: str,
     reason: str,
     service: AudioProductionService = Depends(get_audio_production_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Asset:
     try:
-        await service.get(production_id)  # 404s if the production record itself is unknown
+        production = await service.get(production_id)  # 404s if the production record itself is unknown
+        await episode_context(
+            production.episode_id, episode_repo, series_repo,
+            user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+        )
         return await service.reject_take(asset_id, reason)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

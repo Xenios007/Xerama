@@ -4,6 +4,29 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-067 - Authentication/Authorization)
+
+- `User`/`AuthSession`/`ProjectMembership` (owner/editor/viewer) +
+  `POST/GET /auth/register|login|logout|me`; `hashlib.scrypt` password
+  hashing, opaque bearer session tokens (no JWT/custom crypto).
+- `api/authorization.py` - `authorize_project_access` + per-ID-shape
+  `Depends()` factories (`require_project_role`/`require_series_role`/
+  `require_episode_role`/`require_character_role`), all a true no-op
+  unless `xerama_mode=hosted`.
+- Every project-scoped router now enforces role-based access in hosted
+  mode: projects, assets, costs, episodes, feedback, generation,
+  health/observability, inspect, jobs, optimization, analytics,
+  storyboards, video/audio-production, assembly, style-bible, season,
+  characters, voice-profile, subtitles, music/sfx cues. `POST /projects`
+  grants the creator OWNER; `GET /projects` is scoped to the caller.
+- Fixed a naive/aware datetime comparison bug in
+  `SQLAlchemyAuthSessionRepository` (SQLite drops tzinfo on round-trip)
+  and a standard-mode behavior leak in the new `require_*_role` helpers
+  (existence checks ran before the hosted-mode gate) - both caught by
+  the new test suite before reaching the API layer.
+- 23 new tests; full suite green (587 passed, up from 564), the entire
+  564-test standard-mode suite unaffected.
+
 ### Added (MODULE-066 - Security)
 
 - Threat-model pass over API/uploads/asset-serving/FFmpeg subprocesses/

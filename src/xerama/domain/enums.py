@@ -248,3 +248,13 @@ class CanonChangeType(str, Enum):
     PROP_OWNERSHIP_CHANGE = "prop_ownership_change"
     PROMISE_CREATED = "promise_created"
     PROMISE_PAID_OFF = "promise_paid_off"
+
+
+class ProjectRole(str, Enum):
+    """See MODULE-067. Ranked OWNER > EDITOR > VIEWER - authorization
+    checks a caller's role against a minimum required role, never an
+    exact match."""
+
+    OWNER = "owner"
+    EDITOR = "editor"
+    VIEWER = "viewer"

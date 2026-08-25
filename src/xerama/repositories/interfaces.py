@@ -18,6 +18,7 @@ from xerama.domain.canon import CanonEvent
 from xerama.domain.character import Character, CharacterCast, PhysicalStateVariant, WardrobeVariant
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.analytics import EpisodeMetric
+from xerama.domain.auth import AuthSession, ProjectMembership, User
 from xerama.domain.cost import CostRecord
 from xerama.domain.episode_render import EpisodeRender
 from xerama.domain.feedback import HumanFeedback
@@ -33,7 +34,7 @@ from xerama.domain.story import ConceptCandidate, JudgeResult
 from xerama.domain.style_bible import StyleBible
 from xerama.domain.video_production import ShotVideoProduction
 from xerama.domain.voice import VoiceProfile
-from xerama.domain.enums import JobStage, JobStatus, AudioMode, MediaQCDimension, QCStatus
+from xerama.domain.enums import JobStage, JobStatus, AudioMode, MediaQCDimension, ProjectRole, QCStatus
 
 
 class ProjectRecord(BaseModel):
@@ -396,6 +397,12 @@ class CharacterCastingRepository(Protocol):
 
     async def get_character(self, character_id: str) -> Character | None: ...
 
+    async def get_character_series_id(self, character_id: str) -> str | None:
+        """See MODULE-067 - authorization needs to resolve character ->
+        series -> project without pulling (and paying the cost of
+        rebuilding) the full `Character` domain object."""
+        ...
+
     async def save_character(self, character: Character) -> Character:
         """Persists every field of `character` over the existing row.
         Raises `ValueError` if the character does not already exist."""
@@ -731,3 +738,41 @@ class HumanFeedbackRepository(Protocol):
     async def list_by_asset(self, asset_id: str) -> list[HumanFeedback]: ...
 
     async def list_by_project(self, project_id: str) -> list[HumanFeedback]: ...
+
+
+class UserRepository(Protocol):
+    """See MODULE-067. `email` is unique - `get_by_email` backs both
+    registration's duplicate check and login."""
+
+    async def create(self, email: str, password_hash: str, display_name: str = "") -> User: ...
+
+    async def get(self, user_id: str) -> User | None: ...
+
+    async def get_by_email(self, email: str) -> User | None: ...
+
+
+class AuthSessionRepository(Protocol):
+    """See MODULE-067. An opaque bearer token, not a JWT - validity is a
+    DB lookup + expiry check, never signature verification."""
+
+    async def create(self, user_id: str, token: str, expires_at: datetime) -> AuthSession: ...
+
+    async def get_by_token(self, token: str) -> AuthSession | None: ...
+
+    async def delete_by_token(self, token: str) -> None: ...
+
+
+class ProjectMembershipRepository(Protocol):
+    """See MODULE-067. One row per (project_id, user_id) - `grant`
+    upserts the role if a membership already exists rather than creating
+    a duplicate."""
+
+    async def grant(self, project_id: str, user_id: str, role: ProjectRole) -> ProjectMembership: ...
+
+    async def get(self, project_id: str, user_id: str) -> ProjectMembership | None: ...
+
+    async def list_by_user(self, user_id: str) -> list[ProjectMembership]: ...
+
+    async def list_by_project(self, project_id: str) -> list[ProjectMembership]: ...
+
+    async def revoke(self, project_id: str, user_id: str) -> None: ...

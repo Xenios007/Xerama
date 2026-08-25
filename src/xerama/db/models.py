@@ -11,7 +11,7 @@ real columns.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from xerama.db.base import Base, utcnow
@@ -672,4 +672,44 @@ class HumanFeedback(Base):
     reviewer: Mapped[str] = mapped_column(String(128), default="")
     provider: Mapped[str] = mapped_column(String(64), default="")
     model: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class User(Base):
+    """See MODULE-067. Only exists/matters in "hosted" mode - local
+    single-user mode never creates a row here."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    display_name: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class AuthSession(Base):
+    """See MODULE-067. An opaque bearer token - validity is a lookup +
+    expiry check here, never signature verification."""
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    token: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column()
+
+
+class ProjectMembership(Base):
+    """See MODULE-067. One row per (project_id, user_id) - `grant`
+    upserts the role in place rather than accumulating duplicates."""
+
+    __tablename__ = "project_memberships"
+    __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_project_membership"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[str] = mapped_column(String(16))  # owner | editor | viewer
     created_at: Mapped[datetime] = mapped_column(default=utcnow)

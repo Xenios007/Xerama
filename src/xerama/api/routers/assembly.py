@@ -9,14 +9,17 @@ regenerated."
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from xerama.api.authorization import get_current_user, get_project_membership_repo
 from xerama.api.deps import get_assembly_service, get_episode_repo, get_export_service, get_series_repo
 from xerama.api.shot_lookup import episode_context
 from xerama.domain.asset import Asset
+from xerama.domain.auth import User
+from xerama.domain.enums import ProjectRole
 from xerama.domain.episode_render import EpisodeRender
 from xerama.domain.export import VERTICAL_1080_1920
 from xerama.domain.quality import QCResult
 from xerama.pipeline.assembly_plan_builder import IncompleteProductionError
-from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository
+from xerama.repositories.interfaces import EpisodeRepository, ProjectMembershipRepository, SeriesRepository
 from xerama.services.assembly_service import EpisodeAssemblyService
 from xerama.services.export_service import VerticalExportService
 
@@ -40,8 +43,13 @@ async def render_episode(
     service: EpisodeAssemblyService = Depends(get_assembly_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> Asset:
-    _, series = await episode_context(episode_id, episode_repo, series_repo)
+    _, series = await episode_context(
+        episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
     try:
         render_asset, _render = await service.render_episode(
             episode_id, series.project_id, series_id=series.id
@@ -59,11 +67,16 @@ async def export_episode(
     service: VerticalExportService = Depends(get_export_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> ExportResponse:
     """MODULE-048 - render (MODULE-046) at the default vertical
     1080x1920 profile and validate the result via ffprobe (duration,
     aspect, streams, corruption) plus subtitle safe-area/reading-speed."""
-    _, series = await episode_context(episode_id, episode_repo, series_repo)
+    _, series = await episode_context(
+        episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.EDITOR,
+    )
     try:
         asset, render, report = await service.export_episode(
             episode_id, series.project_id, series_id=series.id, profile=VERTICAL_1080_1920
@@ -77,37 +90,87 @@ async def export_episode(
 
 @router.get("/episodes/{episode_id}/renders", response_model=list[EpisodeRender])
 async def list_episode_renders(
-    episode_id: str, service: EpisodeAssemblyService = Depends(get_assembly_service)
+    episode_id: str,
+    service: EpisodeAssemblyService = Depends(get_assembly_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> list[EpisodeRender]:
+    await episode_context(
+        episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.VIEWER,
+    )
     return await service.list_renders(episode_id)
 
 
 @router.get("/episodes/{episode_id}/renders/current", response_model=EpisodeRender)
 async def get_current_episode_render(
-    episode_id: str, service: EpisodeAssemblyService = Depends(get_assembly_service)
+    episode_id: str,
+    service: EpisodeAssemblyService = Depends(get_assembly_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> EpisodeRender:
+    await episode_context(
+        episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=ProjectRole.VIEWER,
+    )
     render = await service.get_current(episode_id)
     if render is None:
         raise HTTPException(status_code=404, detail="no approved render for this episode yet")
     return render
 
 
-@router.get("/episode-renders/{render_id}", response_model=EpisodeRender)
-async def get_episode_render(
-    render_id: str, service: EpisodeAssemblyService = Depends(get_assembly_service)
+async def _authorize_for_render(
+    render_id: str,
+    min_role: ProjectRole,
+    service: EpisodeAssemblyService,
+    episode_repo: EpisodeRepository,
+    series_repo: SeriesRepository,
+    user: User | None,
+    membership_repo: ProjectMembershipRepository,
 ) -> EpisodeRender:
     try:
-        return await service.get_render(render_id)
+        render = await service.get_render(render_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await episode_context(
+        render.episode_id, episode_repo, series_repo,
+        user=user, membership_repo=membership_repo, min_role=min_role,
+    )
+    return render
+
+
+@router.get("/episode-renders/{render_id}", response_model=EpisodeRender)
+async def get_episode_render(
+    render_id: str,
+    service: EpisodeAssemblyService = Depends(get_assembly_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
+) -> EpisodeRender:
+    return await _authorize_for_render(
+        render_id, ProjectRole.VIEWER, service, episode_repo, series_repo, user, membership_repo
+    )
 
 
 @router.post("/episode-renders/{render_id}/approve", response_model=EpisodeRender)
 async def approve_episode_render(
-    render_id: str, service: EpisodeAssemblyService = Depends(get_assembly_service)
+    render_id: str,
+    service: EpisodeAssemblyService = Depends(get_assembly_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> EpisodeRender:
     """Also how rollback works - approving an older `superseded` render
     (from `GET /episodes/{id}/renders`) makes it current again."""
+    await _authorize_for_render(
+        render_id, ProjectRole.OWNER, service, episode_repo, series_repo, user, membership_repo
+    )
     try:
         return await service.approve_render(render_id)
     except ValueError as exc:
@@ -116,8 +179,16 @@ async def approve_episode_render(
 
 @router.get("/episode-renders/{render_id}/staleness", response_model=StalenessReport)
 async def get_episode_render_staleness(
-    render_id: str, service: EpisodeAssemblyService = Depends(get_assembly_service)
+    render_id: str,
+    service: EpisodeAssemblyService = Depends(get_assembly_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    user: User | None = Depends(get_current_user),
+    membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
 ) -> StalenessReport:
+    await _authorize_for_render(
+        render_id, ProjectRole.VIEWER, service, episode_repo, series_repo, user, membership_repo
+    )
     try:
         stale, reasons = await service.check_staleness(render_id)
     except ValueError as exc:

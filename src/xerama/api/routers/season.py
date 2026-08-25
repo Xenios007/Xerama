@@ -2,7 +2,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from xerama.api.authorization import require_series_role
 from xerama.api.deps import get_gateway, get_season_repo, get_series_repo
+from xerama.domain.enums import ProjectRole
 from xerama.pipeline.ai_gateway import AIGateway, XeramaGenerationError
 from xerama.pipeline.season_stage import SeasonStage
 from xerama.pipeline.season_validators import SeasonValidator
@@ -11,7 +13,11 @@ from xerama.repositories.interfaces import SeasonPlanRecord, SeasonRepository, S
 router = APIRouter(prefix="/series", tags=["season"])
 
 
-@router.get("/{series_id}/season-plan", response_model=SeasonPlanRecord)
+@router.get(
+    "/{series_id}/season-plan",
+    response_model=SeasonPlanRecord,
+    dependencies=[Depends(require_series_role(ProjectRole.VIEWER))],
+)
 async def get_current_season_plan(
     series_id: str, repo: SeasonRepository = Depends(get_season_repo)
 ) -> SeasonPlanRecord:
@@ -21,14 +27,22 @@ async def get_current_season_plan(
     return plan
 
 
-@router.get("/{series_id}/season-plan/versions", response_model=list[SeasonPlanRecord])
+@router.get(
+    "/{series_id}/season-plan/versions",
+    response_model=list[SeasonPlanRecord],
+    dependencies=[Depends(require_series_role(ProjectRole.VIEWER))],
+)
 async def list_season_plan_versions(
     series_id: str, repo: SeasonRepository = Depends(get_season_repo)
 ) -> list[SeasonPlanRecord]:
     return await repo.list_versions(series_id)
 
 
-@router.get("/{series_id}/season-plan/{version}", response_model=SeasonPlanRecord)
+@router.get(
+    "/{series_id}/season-plan/{version}",
+    response_model=SeasonPlanRecord,
+    dependencies=[Depends(require_series_role(ProjectRole.VIEWER))],
+)
 async def get_season_plan_version(
     series_id: str, version: int, repo: SeasonRepository = Depends(get_season_repo)
 ) -> SeasonPlanRecord:
@@ -38,7 +52,11 @@ async def get_season_plan_version(
     return plan
 
 
-@router.post("/{series_id}/season-plan/regenerate", response_model=SeasonPlanRecord)
+@router.post(
+    "/{series_id}/season-plan/regenerate",
+    response_model=SeasonPlanRecord,
+    dependencies=[Depends(require_series_role(ProjectRole.EDITOR))],
+)
 async def regenerate_season_plan(
     series_id: str,
     season_repo: SeasonRepository = Depends(get_season_repo),
@@ -64,7 +82,11 @@ async def regenerate_season_plan(
     return await season_repo.create_plan(series_id, plan, qc)
 
 
-@router.post("/{series_id}/season-plan/{version}/approve", response_model=SeasonPlanRecord)
+@router.post(
+    "/{series_id}/season-plan/{version}/approve",
+    response_model=SeasonPlanRecord,
+    dependencies=[Depends(require_series_role(ProjectRole.EDITOR))],
+)
 async def approve_season_plan(
     series_id: str, version: int, repo: SeasonRepository = Depends(get_season_repo)
 ) -> SeasonPlanRecord:

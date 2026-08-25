@@ -2,14 +2,20 @@
 
 from fastapi import APIRouter, Depends
 
+from xerama.api.authorization import require_project_role
 from xerama.api.deps import get_optimization_service
+from xerama.domain.enums import ProjectRole
 from xerama.pipeline.provider_ranking import Objective, ProviderRanking
 from xerama.services.optimization_service import OptimizationService
 
 router = APIRouter(tags=["optimization"])
 
 
-@router.get("/projects/{project_id}/provider-rankings", response_model=list[ProviderRanking])
+@router.get(
+    "/projects/{project_id}/provider-rankings",
+    response_model=list[ProviderRanking],
+    dependencies=[Depends(require_project_role(ProjectRole.VIEWER))],
+)
 async def get_provider_rankings(
     project_id: str,
     objective: Objective = "balanced",

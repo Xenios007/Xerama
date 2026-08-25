@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-066 (Security)._
+_Last updated: 2026-08-25 - MODULE-067 (Authentication/Authorization)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1819,6 +1819,101 @@ gaps found:
   `test_api.py` upload-rejection cases) - full suite green (564 passed,
   up from 541).
 
+### MODULE-067 - Authentication / Authorization
+
+"Keep local single-user mode simple but design the auth boundary
+explicitly" (module status `BUILD/LATE`, dependency 066) - resolved by
+making every authorization check a true no-op unless
+`Settings.xerama_mode == "hosted"` (checked *first*, before any DB
+lookup): the default "standard" (local single-user) mode - all 564
+pre-MODULE-067 tests, and every deployment so far - is byte-for-byte
+unchanged; hosted mode is where "enforce authorization server-side on
+project/assets/jobs/reviews" actually activates.
+
+- **Identity core** (`domain/auth.py`, `services/auth_service.py`) -
+  `User`/`AuthSession`/`ProjectMembership` (role: owner/editor/viewer,
+  ranked) + new tables (`users`, `auth_sessions`, `project_memberships`,
+  migration `a4ad752bb224`). Password hashing uses `hashlib.scrypt`
+  (stdlib, memory-hard) with a random salt, never a hand-rolled scheme;
+  session tokens are opaque `secrets.token_urlsafe(32)` strings validated
+  by DB lookup + expiry, never a JWT/signing scheme - "avoid building
+  custom cryptography" is satisfied by using only audited stdlib
+  primitives, not by avoiding auth altogether.
+- **`POST/GET /auth/register|login|logout|me`** (`api/routers/auth.py`) -
+  works in every mode, but only hosted-mode routes actually require the
+  resulting bearer token.
+- **`api/authorization.py`** - `authorize_project_access(project_id,
+  min_role, user, membership_repo)` is the single enforcement primitive
+  (401 no user / 403 insufficient role, no-op in standard mode). Three
+  `Depends()`-compatible factories wrap it for the three ID shapes that
+  appear across the API: `require_project_role` (project_id is already a
+  path/query param - assets list/upload, costs, episodes, feedback,
+  generation, health/observability, inspect, jobs, optimization,
+  projects itself), `require_series_role` (series_id param - style-bible,
+  season, story-performance), `require_episode_role` (episode_id param -
+  subtitles, music/sfx cue creation+listing), `require_character_role`
+  (character_id param - characters, voice-profile). Routers that only
+  resolve a project via a *child* id after a DB fetch (asset_id,
+  storyboard_id, production_id, render_id, cue_id) call
+  `authorize_project_access` inline once the id is resolved, or (for the
+  ~16 call sites already resolving episode->series via
+  `shot_lookup.episode_context`) pass `user=`/`membership_repo=` into
+  that same helper, which now performs the check internally when given
+  them - one shared choke point instead of 16 duplicated calls.
+- **Every project-scoped router is wired**: projects, assets, costs,
+  episodes, feedback, generation, health/observability, inspect, jobs,
+  optimization, analytics, storyboards, video-production,
+  audio-production, assembly (including render-id-only endpoints -
+  resolved via `EpisodeRender.episode_id`), style-bible, season,
+  characters, voice-profile, subtitles, music-cues, sound-effect-cues.
+  Role floor is VIEWER for reads, EDITOR for mutations, OWNER for
+  destructive/publish-defining actions (archive project, delete a cue,
+  approve an episode render for publish - MODULE-060's "final episode
+  publish approval must be explicit and auditable").
+- **Project creation/listing in hosted mode**: `POST /projects` requires
+  an authenticated caller and immediately grants them `OWNER`; `GET
+  /projects` returns only the caller's own projects rather than
+  `list_all()` - listing every project regardless of ownership would
+  itself be the "guessed ID" leak this module exists to close, just
+  without needing to guess.
+- **One documented residual gap**: `GET /jobs/queued` (the
+  worker-claim/ops queue-introspection view) has no project scoping in
+  its underlying data model (`JobRepository.list_queued(stage)` takes no
+  project filter) - per-project authorization structurally does not
+  apply to it. Left as-is rather than inventing a global admin-role
+  system out of MODULE-067's scope; `GET /jobs`/`GET /jobs/failed`
+  require an explicit `project_id` in hosted mode instead of defaulting
+  to an unscoped (cross-tenant) listing.
+- **Real bug found while wiring this**: `SQLAlchemyAuthSessionRepository`
+  read back `AuthSession.expires_at` as a naive `datetime` (SQLite
+  round-trips a plain `DateTime` column without tzinfo even though every
+  write in this codebase is UTC-aware), which raised `TypeError` the
+  first time `AuthService.get_user_for_token` compared it against
+  `datetime.now(timezone.utc)`. Fixed by re-attaching `timezone.utc` on
+  read in the `_auth_session` mapper - caught by
+  `test_get_user_for_token_round_trips` before this ever reached the API
+  layer.
+- **A second real bug found and fixed**: the first cut of
+  `require_series_role`/`require_episode_role`/`require_character_role`
+  performed their series/episode/character existence lookup
+  *unconditionally*, before checking `xerama_mode` - a behavior change
+  even in standard mode (an unknown `episode_id` started 404ing instead
+  of falling through to the handler's own "no shot plan yet" 409, caught
+  by the existing `test_subtitle_generate_requires_shot_plan`). Fixed by
+  moving the `xerama_mode != "hosted"` early-return to the very top of
+  each check, matching `authorize_project_access`'s own contract.
+- Acceptance criterion met: "hosted deployments cannot access another
+  user's production through guessed IDs" - verified end-to-end
+  (`test_api_hosted_mode.py`, real HTTP client -> FastAPI -> SQLAlchemy,
+  `xerama_mode=hosted`): unauthenticated access is 401, a non-member is
+  403 and cannot enumerate the project via `GET /projects`, an
+  owner-created project is invisible to another user's list, editor role
+  can mutate but not archive, viewer role can read but not mutate, an
+  invalid bearer token is treated as unauthenticated rather than
+  erroring. 23 new tests (12 `test_auth_service.py`, 11
+  `test_api_hosted_mode.py`) plus the full pre-existing 564-test standard
+  -mode suite unaffected - full suite green (587 passed, up from 564).
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1844,7 +1939,7 @@ gaps found:
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Authorization/rate-limiting/deployment/hardening (MODULE-067-070), testing/eval
+- Rate-limiting/deployment/hardening (MODULE-068-070), testing/eval
   frameworks (MODULE-071-076), backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;

@@ -3,7 +3,7 @@
 Protocols, not import this module directly, so a future backend swap stays
 localized (ADR-021)."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,12 +21,13 @@ from xerama.domain.character import (
     RelationshipState,
     WardrobeVariant,
 )
-from xerama.domain.enums import AudioMode, JobStage, JobStatus, MediaQCDimension, QCStatus
+from xerama.domain.enums import AudioMode, JobStage, JobStatus, MediaQCDimension, ProjectRole, QCStatus
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan, Scene as SceneDTO, Shot as ShotDTO
 from xerama.domain.audio_production import ShotAudioProduction
 from xerama.domain.analytics import EpisodeMetric
+from xerama.domain.auth import AuthSession, ProjectMembership, User
 from xerama.domain.cost import CostRecord
 from xerama.domain.episode_render import EpisodeRender
 from xerama.domain.feedback import HumanFeedback
@@ -1208,6 +1209,10 @@ class SQLAlchemyCharacterCastingRepository:
         row = await self._session.get(m.Character, character_id)
         return _character(row) if row is not None else None
 
+    async def get_character_series_id(self, character_id: str) -> str | None:
+        row = await self._session.get(m.Character, character_id)
+        return row.series_id if row is not None else None
+
     async def save_character(self, character: Character) -> Character:
         row = await self._session.get(m.Character, character.id)
         if row is None:
@@ -2286,3 +2291,131 @@ class SQLAlchemyHumanFeedbackRepository:
             .order_by(m.HumanFeedback.created_at)
         )
         return [_human_feedback(row) for row in result.scalars()]
+
+
+def _user(row: m.User) -> User:
+    return User(
+        id=row.id,
+        email=row.email,
+        password_hash=row.password_hash,
+        display_name=row.display_name,
+        created_at=row.created_at,
+    )
+
+
+class SQLAlchemyUserRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(self, email: str, password_hash: str, display_name: str = "") -> User:
+        row = m.User(email=email, password_hash=password_hash, display_name=display_name)
+        self._session.add(row)
+        await self._session.flush()
+        return _user(row)
+
+    async def get(self, user_id: str) -> User | None:
+        row = await self._session.get(m.User, user_id)
+        return _user(row) if row else None
+
+    async def get_by_email(self, email: str) -> User | None:
+        result = await self._session.execute(select(m.User).where(m.User.email == email))
+        row = result.scalars().first()
+        return _user(row) if row else None
+
+
+def _auth_session(row: m.AuthSession) -> AuthSession:
+    # SQLite round-trips a plain `DateTime` column as naive, even though
+    # every write in this codebase is UTC (`utcnow()`) - re-attach UTC on
+    # read so `expires_at < datetime.now(timezone.utc)` in
+    # `AuthService.get_user_for_token` never raises TypeError comparing
+    # naive/aware datetimes.
+    expires_at = row.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return AuthSession(
+        id=row.id,
+        user_id=row.user_id,
+        token=row.token,
+        created_at=row.created_at,
+        expires_at=expires_at,
+    )
+
+
+class SQLAlchemyAuthSessionRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(self, user_id: str, token: str, expires_at: datetime) -> AuthSession:
+        row = m.AuthSession(user_id=user_id, token=token, expires_at=expires_at)
+        self._session.add(row)
+        await self._session.flush()
+        return _auth_session(row)
+
+    async def get_by_token(self, token: str) -> AuthSession | None:
+        result = await self._session.execute(select(m.AuthSession).where(m.AuthSession.token == token))
+        row = result.scalars().first()
+        return _auth_session(row) if row else None
+
+    async def delete_by_token(self, token: str) -> None:
+        await self._session.execute(delete(m.AuthSession).where(m.AuthSession.token == token))
+
+
+def _project_membership(row: m.ProjectMembership) -> ProjectMembership:
+    return ProjectMembership(
+        id=row.id,
+        project_id=row.project_id,
+        user_id=row.user_id,
+        role=ProjectRole(row.role),
+        created_at=row.created_at,
+    )
+
+
+class SQLAlchemyProjectMembershipRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def grant(self, project_id: str, user_id: str, role: ProjectRole) -> ProjectMembership:
+        result = await self._session.execute(
+            select(m.ProjectMembership).where(
+                m.ProjectMembership.project_id == project_id,
+                m.ProjectMembership.user_id == user_id,
+            )
+        )
+        row = result.scalars().first()
+        if row is None:
+            row = m.ProjectMembership(project_id=project_id, user_id=user_id, role=role.value)
+            self._session.add(row)
+        else:
+            row.role = role.value
+        await self._session.flush()
+        return _project_membership(row)
+
+    async def get(self, project_id: str, user_id: str) -> ProjectMembership | None:
+        result = await self._session.execute(
+            select(m.ProjectMembership).where(
+                m.ProjectMembership.project_id == project_id,
+                m.ProjectMembership.user_id == user_id,
+            )
+        )
+        row = result.scalars().first()
+        return _project_membership(row) if row else None
+
+    async def list_by_user(self, user_id: str) -> list[ProjectMembership]:
+        result = await self._session.execute(
+            select(m.ProjectMembership).where(m.ProjectMembership.user_id == user_id)
+        )
+        return [_project_membership(row) for row in result.scalars()]
+
+    async def list_by_project(self, project_id: str) -> list[ProjectMembership]:
+        result = await self._session.execute(
+            select(m.ProjectMembership).where(m.ProjectMembership.project_id == project_id)
+        )
+        return [_project_membership(row) for row in result.scalars()]
+
+    async def revoke(self, project_id: str, user_id: str) -> None:
+        await self._session.execute(
+            delete(m.ProjectMembership).where(
+                m.ProjectMembership.project_id == project_id,
+                m.ProjectMembership.user_id == user_id,
+            )
+        )

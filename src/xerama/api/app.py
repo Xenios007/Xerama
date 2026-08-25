@@ -14,6 +14,7 @@ from xerama.api.routers import (
     assembly,
     assets,
     audio_production,
+    auth,
     characters,
     costs,
     episodes,
@@ -148,6 +149,7 @@ def create_app() -> FastAPI:
         expose_headers=["X-Correlation-ID"],
     )
     app.include_router(health.router)
+    app.include_router(auth.router)
     app.include_router(projects.router)
     app.include_router(generation.router)
     # jobs.router must be registered before inspect.router - inspect.py's
