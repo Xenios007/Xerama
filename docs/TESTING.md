@@ -1,7 +1,7 @@
 # Testing Architecture (MODULE-071)
 
 "Contributors/agents can verify changes reproducibly without paid APIs."
-This document is the map of how ~94 backend test files (668 tests + 2
+This document is the map of how ~95 backend test files (669 tests + 2
 conditionally-skipped) and 7 frontend test files (27 tests) are
 organized, what each layer covers, and how to run all of it from a
 clean checkout.
@@ -11,9 +11,10 @@ clean checkout.
 ```bash
 # Backend
 pip install -e ".[dev]"
-pytest -q                              # every test, unit + integration
-pytest -m "not integration" -q         # fast unit-only subset
+pytest -q                              # every test, unit + integration + e2e
+pytest -m "not integration and not e2e" -q   # fast unit-only subset
 pytest -m integration -q               # MODULE-074 - cross-subsystem tests only
+pytest -m e2e -q                       # MODULE-075 - the full production flow, alone
 pytest --cov=xerama --cov-report=term-missing   # coverage (pytest-cov, MODULE-071)
 
 # Frontend
@@ -182,7 +183,46 @@ claim):
   own `lavfi` test-source generator, so no external sample-video fixture
   is needed either way.
 
-## 7. Critical state transitions and failure paths - already covered
+## 7. End-to-end production test + frontend smoke flow (MODULE-075)
+
+**The automated E2E command**: `pytest -m e2e`
+(`tests/test_e2e_production.py::test_full_production_flow_survives_a_restart`).
+One continuous, deterministic, no-paid-API run through the entire
+architecture as a system: seed a 3-episode project -> concept -> judge
+-> canon -> series bible/cast -> season plan -> episode 1 script/shot
+plan -> image keyframe generate/QC/accept -> video take generate/QC/
+accept -> dialogue audio take generate/QC/accept -> subtitle generation
+-> render -> approve -> vertical export/validate -> approve the export's
+render -> **tear down the app/engine entirely and build a brand-new one
+against the same DB file and asset storage directory** (a real process
+restart, not just a fresh SQLAlchemy session - the whole-app version of
+MODULE-074's session-boundary technique) -> re-verify the project,
+episodes, approved render, subtitles, storyboard status, and that the
+final rendered asset's bytes are still readable from disk.
+
+**The frontend smoke flow** (manual - no browser-automation harness
+exists in this codebase, so this is the developer checklist, not a
+second automated command):
+
+```bash
+# terminal 1
+uvicorn xerama.api.app:app --reload
+# terminal 2
+cd frontend && npm run dev
+```
+
+Then, in a browser against the dev server: Dashboard (create a project)
+-> Story Studio (generate the series, watch the bible/cast/season plan
+appear) -> Production Studio (generate and accept a keyframe, then a
+video take, for one shot) -> Review/Approval Studio (see the pending
+item's QC evidence, approve it, approve the episode for publish). Every
+page this walks through already has its own automated Vitest coverage
+(MODULE-055-060's 27 tests) exercising the exact same API calls against
+a mocked `fetch` boundary - the manual flow is what proves those pages
+compose into one working studio against a *real* running backend, which
+a per-page component test can't prove by itself.
+
+## 8. Critical state transitions and failure paths - already covered
 
 Spot-checked rather than re-derived (this module is `AUDIT/EXTEND`, not
 `BUILD` - the coverage below already existed from each owning module):

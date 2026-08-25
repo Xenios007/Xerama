@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-074 (Integration Testing)._
+_Last updated: 2026-08-25 - MODULE-075 (End-to-End Production Testing)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -2284,6 +2284,52 @@ FFmpeg/ffprobe binaries.
   2 conditionally-skipped); full suite green (668 passed + 2 skipped, up
   from 665 passed).
 
+### MODULE-075 - End-to-End Production Testing
+
+- **`tests/test_e2e_production.py`** (new, `@pytest.mark.e2e`, registered
+  in `pyproject.toml`) - `pytest -m e2e` is the module's own "one
+  documented automated E2E command." One continuous, deterministic run
+  through the whole architecture as a system, every provider faked:
+  seed a 3-episode project -> concept -> judge -> canon -> series bible/
+  cast -> season plan -> episode 1 script/shot plan -> image keyframe
+  generate/QC/accept -> video take generate/QC/accept -> dialogue audio
+  take generate/QC/accept -> subtitle generation -> render -> approve ->
+  vertical export/validate -> approve the export's own render.
+- **Reopen-after-restart (the part a narrower per-feature test can't
+  prove)** - after that whole flow, the app/engine is fully torn down
+  (`engine.dispose()`) and a **brand-new** app/engine/client is built
+  against the exact same DB file and asset-storage directory - the
+  whole-app version of MODULE-074's per-session restart technique, not
+  just a new SQLAlchemy session. Re-verifies the project, episode count,
+  the approved render (correct id/status), subtitles, storyboard status,
+  and that the final rendered asset's actual bytes are still readable
+  from disk - not just that the DB rows exist.
+- **A real bug in the test's own first draft, not the application**:
+  `POST /episodes/{id}/export` builds its *own* new `EpisodeRender`
+  version rather than promoting the one already approved via
+  `POST /episodes/{id}/render` - the first draft of this test asserted
+  the export's render was already `"approved"` and failed (`draft` !=
+  `approved`), which is actually correct existing behavior
+  (`test_episode_export_validates_and_returns_report` never asserted a
+  status either, for the same reason). Fixed by explicitly approving the
+  export's render as its own step - "final vertical episode" now means
+  whichever version was approved *last*, matching how MODULE-047
+  versioning/rollback already works everywhere else in this codebase.
+- **Frontend smoke flow** - documented in `docs/TESTING.md` section 7 as
+  a manual developer checklist (Dashboard -> Story Studio -> Production
+  Studio -> Review/Approval Studio against real `uvicorn`+`npm run dev`
+  processes) rather than a second automated command - no browser-
+  automation harness (Playwright/Cypress/etc.) exists in this codebase,
+  and introducing one is a materially larger undertaking than this
+  module's marginal scope justifies. Every page in that walkthrough
+  already has its own automated Vitest coverage (MODULE-055-060, 27
+  tests) against a mocked `fetch` boundary - the manual flow is what
+  proves those pages compose into one working studio against a *real*
+  backend, which per-page component tests can't prove alone.
+- Acceptance criterion met: "the complete architecture works as a
+  system, not merely as individual modules" - full suite green (669
+  passed + 2 skipped, up from 668 passed + 2 skipped).
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2318,7 +2364,7 @@ FFmpeg/ffprobe binaries.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- E2E-production/failure-simulation testing (MODULE-075-076),
+- Failure-simulation testing (MODULE-076),
   backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;

@@ -4,6 +4,20 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-075 - End-to-End Production Testing)
+
+- `tests/test_e2e_production.py` (`@pytest.mark.e2e`) - `pytest -m e2e`:
+  one continuous, deterministic, no-paid-API run through the whole
+  architecture (concept -> canon -> scripts -> shots -> image/video/
+  audio generation+QC+accept -> subtitles -> render -> approve -> export
+  -> approve), then a full app/engine teardown and rebuild against the
+  same DB/storage (a real restart, not just a fresh session) re-verifies
+  everything, including that the final rendered asset's bytes are still
+  readable from disk.
+- Frontend smoke flow documented in `docs/TESTING.md` as a manual
+  developer checklist (no browser-automation harness in this codebase).
+- 1 new test; full suite green (669 passed + 2 skipped, up from 668 + 2).
+
 ### Added (MODULE-074 - Integration Testing)
 
 - `tests/test_integration.py` (`@pytest.mark.integration`, registered
