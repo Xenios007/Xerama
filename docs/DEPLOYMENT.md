@@ -167,7 +167,61 @@ split every module in this codebase already follows:
   the roadmap for MODULE-069's own "document ... the hosted path"
   requirement, not a claim that hosted persistence works today.
 
-## 8. Clean-environment smoke test
+## 8. Operational limits & hardening (MODULE-070)
+
+"Remove prototype-only failure modes before calling the system
+production-ready" - what this covers, and what's still a documented
+boundary rather than a fix:
+
+- **FFmpeg/ffprobe subprocess timeout** - a malformed/pathological input
+  can otherwise hang `ffmpeg`/`ffprobe` indefinitely, and since
+  generation runs synchronously within the HTTP request (section 4),
+  that would hang the request forever too. Every real subprocess call
+  (`providers/ffmpeg_assembler.py`, `ffmpeg_frame_extractor.py`,
+  `ffprobe_inspector.py`) now goes through
+  `providers/subprocess_utils.py::communicate_with_timeout`, which kills
+  the process and fails cleanly past `FFMPEG_TIMEOUT_SECONDS` (default
+  300s) instead. `FFmpegAssembler`/`FFmpegFrameExtractor` raise their
+  existing error types; `FFprobeInspector` returns its existing
+  `MediaProbeResult(ok=False, ...)` soft-failure shape - both match each
+  provider's pre-existing failure contract, nothing new for callers to
+  handle.
+- **Unhandled exceptions** - never leak internals (a generic
+  `{"detail": "internal server error"}` 500 regardless of what actually
+  broke) and are always logged with structured, correlation-ID-tagged
+  context (`api/middleware.py`'s `correlation_id_middleware` - see that
+  module's docstring for why this lives in the middleware rather than a
+  `@app.exception_handler(Exception)` registration, which silently
+  doesn't fire with this middleware stack).
+- **DB connections** - `pool_pre_ping=True` (`db/base.py::make_engine`)
+  replaces a stale/dead pooled connection transparently instead of
+  failing the next real query with a cryptic error. Matters most for a
+  hosted PostgreSQL deployment (section 7); a no-op cost for SQLite's
+  single local connection.
+- **Upload size / rate / concurrency / budget limits** - MODULE-066/068,
+  see sections 5 above and their own `docs/IMPLEMENTATION_STATUS.md`
+  entries.
+- **Debug-only shortcuts** - none found in an explicit audit
+  (`debug=True`, a hardcoded `allow_origins=["*"]`, `reload=True`, or a
+  TODO/FIXME/HACK marker in `src/xerama`) - `FastAPI()` never sets
+  `debug=True`, so no traceback ever reaches a client regardless of the
+  handler above.
+- **Documented boundary, not fixed here**: worker leases
+  (`JobRepository.claim`/`heartbeat`/`recover_abandoned` - MODULE-041/043)
+  are real and tested, but nothing calls `recover_abandoned()`
+  periodically today, because no out-of-process worker consumes the
+  lease-based queue path yet (section 4) - it would only matter once
+  that worker exists. A future worker process must call it on startup
+  and periodically, or an abandoned `running` job (its worker crashed
+  mid-lease) would stay `running` forever.
+- **Documented boundary, not fixed here**: a small number of
+  `get_or_create`-style repository methods have a TOCTOU race under true
+  concurrent first callers (found while testing MODULE-068 - see that
+  module's entry in `docs/IMPLEMENTATION_STATUS.md`) - a loud
+  `IntegrityError` (500), not silent corruption, but not yet a handled
+  409/retry.
+
+## 9. Clean-environment smoke test
 
 `scripts/smoke_test.sh` proves "a new machine can start Xerama from
 documented steps with no hidden local assumptions" (this module's own

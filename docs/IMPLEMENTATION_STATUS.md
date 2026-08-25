@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-069 (Deployment Architecture)._
+_Last updated: 2026-08-25 - MODULE-070 (Production Hardening)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -2023,6 +2023,76 @@ env vars.
   documentation/infrastructure, not application code) - full suite
   still green (607 passed, unaffected).
 
+### MODULE-070 - Production Hardening
+
+A targeted audit against the module's own list (timeouts, graceful
+shutdown, resource limits, DB connection handling, worker leases,
+cleanup policies, error surfaces, debug shortcuts) found most already
+solid from earlier modules and fixed the two real gaps:
+
+- **FFmpeg/ffprobe had no subprocess timeout (the real gap)** -
+  `process.communicate()` with no timeout meant a malformed/pathological
+  input could hang `ffmpeg`/`ffprobe` indefinitely, and since generation
+  runs synchronously in the HTTP request (docs/ARCHITECTURE.md section
+  14), that hangs the request forever too - exactly "hanging
+  indefinitely," the module's own failure mode to eliminate. Fixed with
+  a new shared `providers/subprocess_utils.py::communicate_with_timeout`
+  (kills the process, reaps it, raises/returns per each provider's
+  existing failure contract) wired into all three real providers behind
+  a new `Settings.ffmpeg_timeout_seconds` (default 300s). Verified with
+  a real (non-ffmpeg) hung subprocess, not a mock -
+  `tests/test_subprocess_utils.py` spawns an actual `python -c "time.sleep(30)"`
+  child and confirms it's killed (not merely abandoned - `wait()` would
+  hang forever on a still-running process) within the configured
+  timeout.
+- **Unhandled exceptions were unlogged (the other real gap)** - no
+  traceback ever leaked (`FastAPI()` never sets `debug=True`), but
+  nothing recorded an unhandled exception with structured,
+  correlation-ID-tagged context either - "error surfaces" wasn't fully
+  met. Fixed in `api/middleware.py`'s `correlation_id_middleware`
+  (not a `@app.exception_handler(Exception)` registration - Starlette
+  has a documented limitation where a `BaseHTTPMiddleware` ahead of the
+  router, which this app has, silently prevents that from firing;
+  discovered when the first implementation's own test failed with the
+  raw exception propagating straight through httpx instead of coming
+  back as an HTTP response). Verified end-to-end
+  (`tests/test_error_handling.py`): a genuinely unhandled exception
+  returns a generic `{"detail": "internal server error"}` 500 (message/
+  exception-type/traceback all absent from the response), and is logged
+  with the request's actual correlation ID and path.
+- **`pool_pre_ping=True`** added to `db/base.py::make_engine` -
+  transparently replaces a stale/dead pooled DB connection instead of
+  failing the next real query; a no-op cost for SQLite today, hardening
+  aimed at a future hosted PostgreSQL deployment (MODULE-069 section 7).
+- **Already solid, verified rather than changed**: graceful shutdown
+  (`lifespan` already closes the HTTP client and disposes the DB engine
+  on shutdown), partial provider outages (`test_media_router.py` already
+  covers health-circuit skip / fallback-to-next-provider / all-providers-
+  failed), resource limits (upload size - MODULE-066; rate/concurrency/
+  budget - MODULE-068), and debug-only shortcuts (an explicit grep audit
+  for `debug=True`/hardcoded `allow_origins=["*"]`/`reload=True`/TODO-
+  FIXME-HACK markers across `src/xerama` found none).
+- **"Validate large projects"** - `tests/test_large_project.py`: a
+  40-episode `generate-series` completes in well under the test's 10s
+  budget (episode 1 still auto-generates end-to-end; the rest are
+  outline-only records - documented existing behavior, not new to this
+  module) and returns exactly 40 episode records; listing 300 assets for
+  one project via `GET /assets` completes in well under 5s. Smoke-level,
+  not a load test - no CI infrastructure exists to run one against
+  (matches this module's own "appropriate to local CI resources"
+  verification bar).
+- **Documented, not fixed here** (see `docs/DEPLOYMENT.md` section 8 for
+  the full writeup): worker-lease recovery
+  (`JobRepository.recover_abandoned`) is real and tested but nothing
+  calls it periodically, since no out-of-process worker consumes the
+  lease-based queue path yet - would only matter once one exists; the
+  `get_or_create` TOCTOU race found during MODULE-068 stays a documented
+  gap, not a fix, for the reasons given there.
+- Acceptance criterion met: "expected failures degrade safely instead of
+  corrupting state or hanging indefinitely" - verified by 8 new tests (3
+  subprocess-timeout, 3 unhandled-exception, 2 large-project) - full
+  suite green (615 passed, up from 607).
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2057,8 +2127,7 @@ env vars.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Production hardening (MODULE-070), testing/eval
-  frameworks (MODULE-071-076), backup/migration/docs/release
+- Testing/eval frameworks (MODULE-071-076), backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).

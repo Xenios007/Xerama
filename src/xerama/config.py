@@ -93,6 +93,11 @@ class Settings(BaseSettings):
     ffmpeg_path: str = "ffmpeg"
     # Binary name/path for export validation (MODULE-048).
     ffprobe_path: str = "ffprobe"
+    # MODULE-070 - a malformed/pathological input can hang ffmpeg/ffprobe
+    # indefinitely; every subprocess call is killed and the request fails
+    # cleanly past this many seconds rather than hanging the request
+    # forever. 300s is generous for a short vertical microdrama episode.
+    ffmpeg_timeout_seconds: float = 300.0
     # MODULE-055 - comma-separated allowed origins for the frontend studio
     # shell. Defaults to the Vite dev server; production deployments
     # override with their actual origin(s) - never "*" with credentials.

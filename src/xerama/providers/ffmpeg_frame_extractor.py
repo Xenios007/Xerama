@@ -8,14 +8,17 @@ import asyncio
 import tempfile
 from pathlib import Path
 
+from xerama.providers.subprocess_utils import SubprocessTimeoutError, communicate_with_timeout
+
 
 class FFmpegExtractionError(RuntimeError):
     pass
 
 
 class FFmpegFrameExtractor:
-    def __init__(self, ffmpeg_path: str = "ffmpeg") -> None:
+    def __init__(self, ffmpeg_path: str = "ffmpeg", timeout_seconds: float = 300.0) -> None:
         self._ffmpeg_path = ffmpeg_path
+        self._timeout_seconds = timeout_seconds
 
     async def extract_last_frame(self, video_bytes: bytes) -> bytes:
         with tempfile.TemporaryDirectory() as tmp:
@@ -38,7 +41,10 @@ class FFmpegFrameExtractor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _, stderr = await process.communicate()
+            try:
+                _, stderr = await communicate_with_timeout(process, self._timeout_seconds)
+            except SubprocessTimeoutError as exc:
+                raise FFmpegExtractionError(str(exc)) from exc
             if process.returncode != 0 or not frame_path.exists():
                 raise FFmpegExtractionError(
                     f"ffmpeg last-frame extraction failed (code {process.returncode}): "

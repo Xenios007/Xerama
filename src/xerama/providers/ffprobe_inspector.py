@@ -12,11 +12,13 @@ import tempfile
 from pathlib import Path
 
 from xerama.domain.export import MediaProbeResult
+from xerama.providers.subprocess_utils import SubprocessTimeoutError, communicate_with_timeout
 
 
 class FFprobeInspector:
-    def __init__(self, ffprobe_path: str = "ffprobe") -> None:
+    def __init__(self, ffprobe_path: str = "ffprobe", timeout_seconds: float = 300.0) -> None:
         self._ffprobe_path = ffprobe_path
+        self._timeout_seconds = timeout_seconds
 
     async def inspect(self, data: bytes) -> MediaProbeResult:
         with tempfile.TemporaryDirectory() as tmp:
@@ -35,7 +37,10 @@ class FFprobeInspector:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await process.communicate()
+            try:
+                stdout, stderr = await communicate_with_timeout(process, self._timeout_seconds)
+            except SubprocessTimeoutError as exc:
+                return MediaProbeResult(ok=False, error=str(exc))
             if process.returncode != 0:
                 return MediaProbeResult(ok=False, error=stderr.decode(errors="replace"))
 

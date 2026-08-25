@@ -41,7 +41,15 @@ def utcnow() -> datetime:
 
 def make_engine(database_url: str):
     connect_args = {"check_same_thread": False} if "sqlite" in database_url else {}
-    return create_async_engine(database_url, connect_args=connect_args)
+    # MODULE-070 - `pool_pre_ping` issues a lightweight liveness check
+    # before handing out a pooled connection, so a connection gone stale
+    # (DB restart, network blip, a hosted DB's idle-connection timeout)
+    # is transparently replaced instead of failing the next real query
+    # with a cryptic "server closed the connection" error. A no-op cost
+    # for SQLite's single local connection; the hardening this exists
+    # for is a hosted PostgreSQL deployment (section 7,
+    # docs/DEPLOYMENT.md).
+    return create_async_engine(database_url, connect_args=connect_args, pool_pre_ping=True)
 
 
 def make_session_factory(engine) -> async_sessionmaker[AsyncSession]:

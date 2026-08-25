@@ -113,7 +113,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # placeholder) when one isn't installed, same "optional real adapter"
     # principle as every media provider above.
     app.state.frame_extractor = (
-        FFmpegFrameExtractor(ffmpeg_path=settings.ffmpeg_path)
+        FFmpegFrameExtractor(
+            ffmpeg_path=settings.ffmpeg_path, timeout_seconds=settings.ffmpeg_timeout_seconds
+        )
         if shutil.which(settings.ffmpeg_path)
         else FakeFrameExtractor()
     )
@@ -122,13 +124,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # placeholder otherwise, both behind the same `EpisodeAssembler`
     # Protocol so no caller code branches on which one is active.
     app.state.episode_assembler = (
-        FFmpegAssembler(ffmpeg_path=settings.ffmpeg_path)
+        FFmpegAssembler(
+            ffmpeg_path=settings.ffmpeg_path, timeout_seconds=settings.ffmpeg_timeout_seconds
+        )
         if ffmpeg_is_available(settings.ffmpeg_path)
         else FakeAssembler()
     )
     # MODULE-048 - same principle, one more optional real adapter.
     app.state.media_inspector = (
-        FFprobeInspector(ffprobe_path=settings.ffprobe_path)
+        FFprobeInspector(
+            ffprobe_path=settings.ffprobe_path, timeout_seconds=settings.ffmpeg_timeout_seconds
+        )
         if shutil.which(settings.ffprobe_path)
         else FakeMediaInspector()
     )

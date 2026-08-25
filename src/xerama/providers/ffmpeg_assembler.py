@@ -26,6 +26,7 @@ import tempfile
 from pathlib import Path
 
 from xerama.domain.assembly import AssemblyPlan
+from xerama.providers.subprocess_utils import SubprocessTimeoutError, communicate_with_timeout
 
 
 class FFmpegAssemblerError(RuntimeError):
@@ -41,8 +42,9 @@ def _db_to_volume_filter(gain_db: float) -> str:
 
 
 class FFmpegAssembler:
-    def __init__(self, ffmpeg_path: str = "ffmpeg") -> None:
+    def __init__(self, ffmpeg_path: str = "ffmpeg", timeout_seconds: float = 300.0) -> None:
         self._ffmpeg_path = ffmpeg_path
+        self._timeout_seconds = timeout_seconds
 
     async def _run(self, args: list[str]) -> None:
         process = await asyncio.create_subprocess_exec(
@@ -51,7 +53,10 @@ class FFmpegAssembler:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr = await process.communicate()
+        try:
+            _, stderr = await communicate_with_timeout(process, self._timeout_seconds)
+        except SubprocessTimeoutError as exc:
+            raise FFmpegAssemblerError(str(exc)) from exc
         if process.returncode != 0:
             raise FFmpegAssemblerError(
                 f"ffmpeg failed (code {process.returncode}): {stderr.decode(errors='replace')}"

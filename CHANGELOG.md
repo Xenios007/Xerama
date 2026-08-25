@@ -4,6 +4,30 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-070 - Production Hardening)
+
+- FFmpeg/ffprobe subprocess calls now have a timeout
+  (`providers/subprocess_utils.py`, `Settings.ffmpeg_timeout_seconds`,
+  default 300s) - previously a malformed input could hang the process
+  (and the synchronous request handling it) indefinitely.
+- Unhandled exceptions are now always logged with structured,
+  correlation-ID-tagged context (`api/middleware.py`) - the client
+  response was already a safe generic 500, but nothing was recording
+  what actually broke.
+- `pool_pre_ping=True` on the DB engine (hardening aimed at a future
+  hosted PostgreSQL deployment).
+- Explicit audit confirmed no debug-only shortcuts exist
+  (`debug=True`/`allow_origins=["*"]`/`reload=True`/TODO-FIXME-HACK) and
+  partial-provider-outage handling is already solid
+  (`test_media_router.py`).
+- New large-project smoke tests (40-episode series generation, 300-asset
+  listing) complete well within budget.
+- Documented (not fixed - out of scope) two pre-existing gaps: worker-
+  lease recovery has no periodic caller yet (no out-of-process worker
+  exists to need it), and the MODULE-068-discovered `get_or_create`
+  TOCTOU race.
+- 8 new tests; full suite green (615 passed, up from 607).
+
 ### Added (MODULE-069 - Deployment Architecture)
 
 - `docs/DEPLOYMENT.md` - component topology, local/container quickstart,
