@@ -7,10 +7,12 @@ recorded as a persistent `GenerationJob` so a mid-pipeline failure leaves
 earlier stages inspectable.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from xerama.api.authorization import require_project_role
-from xerama.api.deps import get_project_repo, get_showrunner
+from xerama.api.deps import get_project_repo, get_session, get_showrunner
+from xerama.api.rate_limiting import guarded_generation
 from xerama.domain.brief import CreativeBrief
 from xerama.domain.enums import ProjectRole
 from xerama.pipeline.ai_gateway import XeramaGenerationError
@@ -28,13 +30,18 @@ router = APIRouter(prefix="/projects", tags=["generation"])
 async def generate_series(
     project_id: str,
     brief: CreativeBrief,
+    http_request: Request,
     showrunner: Showrunner = Depends(get_showrunner),
     project_repo: ProjectRepository = Depends(get_project_repo),
+    session: AsyncSession = Depends(get_session),
 ) -> PipelineResult:
     project = await project_repo.get(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     try:
-        return await showrunner.run(project_id, brief)
+        async with guarded_generation(
+            http_request, session, project_id, duplicate_key=f"{project_id}:generate-series"
+        ):
+            return await showrunner.run(project_id, brief)
     except XeramaGenerationError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

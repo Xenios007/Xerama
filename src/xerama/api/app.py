@@ -38,6 +38,7 @@ from xerama.config import ModelRoleRegistry, Settings, get_settings
 from xerama.db.base import create_all, make_engine, make_session_factory
 from xerama.observability.logging import configure_structured_logging
 from xerama.pipeline.ai_gateway import AIGateway
+from xerama.pipeline.rate_limiting import RateLimiter
 from xerama.providers.fake_assembler import FakeAssembler
 from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_image import FakeImageProvider
@@ -85,6 +86,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ai_gateway = gateway
     app.state.http_client = http_client
     app.state.storage_provider = LocalStorageProvider(settings.asset_storage_path)
+    # MODULE-068 - process-lifetime, in-memory (see rate_limiting.py's
+    # docstring for why not DB-backed); permissive defaults so standard
+    # mode is unaffected, tightened via env for hosted deployments.
+    app.state.rate_limiter = RateLimiter(
+        requests_per_window=settings.rate_limit_requests_per_window,
+        window_seconds=settings.rate_limit_window_seconds,
+        max_concurrent_per_project=settings.rate_limit_max_concurrent_per_project,
+    )
     # No free/trial media API is wired up yet for any of these - see
     # Module 06/07. Manual asset upload (Module 04) remains the first-class
     # fallback for images; video/voice/lip-sync consumers arrive in

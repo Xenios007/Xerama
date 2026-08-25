@@ -20,6 +20,7 @@ from xerama.providers.fake_voice import FakeVoiceProvider
 from xerama.providers.health import ProviderHealthTracker
 from xerama.providers.image import ImageProviderCapabilities
 from xerama.providers.local_storage import LocalStorageProvider
+from xerama.pipeline.rate_limiting import RateLimiter
 from xerama.services.media_router import MediaProviderRouter
 
 
@@ -67,6 +68,12 @@ async def client(tmp_path):
     app.state.episode_assembler = episode_assembler
     media_inspector = FakeMediaInspector()
     app.state.media_inspector = media_inspector
+    settings = Settings()
+    app.state.rate_limiter = RateLimiter(
+        requests_per_window=settings.rate_limit_requests_per_window,
+        window_seconds=settings.rate_limit_window_seconds,
+        max_concurrent_per_project=settings.rate_limit_max_concurrent_per_project,
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:

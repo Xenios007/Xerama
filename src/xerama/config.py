@@ -75,6 +75,18 @@ class Settings(BaseSettings):
     # pipeline/upload_validation.py). Provider-generated assets never go
     # through this check - only client-supplied bytes are untrusted.
     max_upload_size_bytes: int = 200 * 1024 * 1024
+
+    # MODULE-068 - rate/concurrency/budget guards on expensive
+    # generation endpoints (pipeline/rate_limiting.py,
+    # services/budget_service.py). Defaults are deliberately permissive
+    # ("local trusted mode may use permissive defaults") so standard
+    # (local single-user) mode and the existing test suite are
+    # unaffected; a hosted deployment tightens these via env vars.
+    rate_limit_requests_per_window: int = 1000
+    rate_limit_window_seconds: float = 60.0
+    rate_limit_max_concurrent_per_project: int = 20
+    # None = unlimited (the standard-mode default).
+    project_budget_ceiling_usd: float | None = None
     # Binary name/path for last-frame extraction (Module 08/MODULE-032) and
     # episode assembly (MODULE-046) - override if ffmpeg isn't on PATH
     # under this exact name.

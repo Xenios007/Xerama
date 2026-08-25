@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-067 (Authentication/Authorization)._
+_Last updated: 2026-08-25 - MODULE-068 (Rate Limits/Abuse Protection)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1914,8 +1914,79 @@ project/assets/jobs/reviews" actually activates.
   `test_api_hosted_mode.py`) plus the full pre-existing 564-test standard
   -mode suite unaffected - full suite green (587 passed, up from 564).
 
+### MODULE-068 - Rate Limits / Abuse Protection
+
+"Local trusted mode may use permissive defaults" - implemented literally:
+every new `Settings` field (`rate_limit_requests_per_window`,
+`rate_limit_window_seconds`, `rate_limit_max_concurrent_per_project`,
+`project_budget_ceiling_usd`) defaults to a generous/unlimited value, so
+the guard mechanism is *structurally always active* (unlike MODULE-067's
+hard `xerama_mode` gate) but numerically inert for the existing 587-test
+standard-mode suite; a hosted deployment tightens the same fields via
+env vars.
+
+- **`pipeline/rate_limiting.py`** - `RateLimiter`, one process-lifetime,
+  in-memory instance (`app.state.rate_limiter`, same operational
+  category as `ProviderHealthTracker` - ADR-011 - not durable state,
+  see the module docstring for why not DB-backed):
+  - `check_request_rate(project_id)` - sliding-window request count,
+    raises with a computed `retry_after_seconds`.
+  - `acquire_concurrency_slot(project_id)` - async context manager,
+    raises immediately (never queues) once a project has
+    `max_concurrent_per_project` generations in flight.
+  - `suppress_duplicate(key)` - async context manager keyed by e.g.
+    `f"{project_id}:keyframe:{storyboard_id}"` - "duplicate-generation
+    suppression": an identical request already in flight is rejected
+    rather than paying for the same provider call twice.
+- **`services/budget_service.py`** - `BudgetGuard.check_budget(project_id,
+  ceiling_usd)` - a hard ceiling gate (no-op if `None`), distinct from
+  `pipeline/cost_aggregation.py`'s ADR-024 cost-per-accepted-output
+  *analysis* ratio. Sums every cost-known attempt for the project
+  (rejected generations still cost money) - never fabricates a cost for
+  a `cost_known=False` record, same "never invent unavailable metrics"
+  discipline as MODULE-061.
+- **`api/rate_limiting.py`** - `guarded_generation(request, session,
+  project_id, duplicate_key=None)` wraps *only the provider call itself*
+  (cheap lookups/prompt compilation ahead of it are unmetered) in every
+  endpoint that actually spends provider money: image/video/voice
+  generation (`generate_keyframe`/`_with_auto_heal`, `generate_take`/
+  `_with_auto_heal`/`generate_lip_synced_take`, `generate_dialogue_take`/
+  `_with_auto_heal`) and the LLM-driven pipeline entry points
+  (`generate_series`, episode `generate`/`generate-next`/`generate-range`).
+  Maps failures to distinct, actionable HTTP responses: 429 with
+  `Retry-After` (rate or concurrency), 402 (budget ceiling), 409
+  (duplicate in flight).
+- **A real bug found while writing the duplicate-suppression test**:
+  `StyleBibleRepository.get_or_create` (and likely the analogous
+  `get_or_create_storyboard`/`get_or_create_production` methods) has a
+  TOCTOU race - two genuinely concurrent first-time callers for the same
+  series can both pass the "does a row exist" check and then both
+  attempt the insert, one failing with a raw `IntegrityError` (a 500,
+  not a handled 409). Out of scope for MODULE-068 to fix (unrelated to
+  rate limiting, and auditing every `get_or_create` call site
+  codebase-wide for the same pattern is a separate undertaking) -
+  documented here as a known gap; the duplicate-suppression test
+  isolates `RateLimiter` behavior directly rather than racing real
+  concurrent HTTP requests into this bug.
+- Acceptance criterion met: "one client cannot unintentionally create
+  unlimited expensive provider work" - verified by 20 new tests (12 pure
+  `RateLimiter` unit tests, 5 `BudgetGuard` unit tests against real cost
+  records, 3 end-to-end API tests with a deliberately tight
+  `RateLimiter`/budget ceiling proving 429+`Retry-After`, 402, and 409
+  all fire correctly) - full suite green (607 passed, up from 587), the
+  entire 587-test permissive-default suite unaffected.
+
 ## Partially implemented
 
+- **`get_or_create`-style repository methods and concurrent first callers** -
+  `StyleBibleRepository.get_or_create` (and likely
+  `get_or_create_storyboard`/`get_or_create_production`, same shape) has
+  a TOCTOU race: two genuinely concurrent first-time callers for the
+  same key can both see "no row yet" and both attempt the insert, one
+  raising a raw `IntegrityError` (a 500) instead of a handled response.
+  Found while writing a MODULE-068 duplicate-suppression test; out of
+  scope there (unrelated to rate limiting) and not yet audited/fixed
+  codebase-wide.
 - **Character/Style identity** - the full structural layer (`Character`,
   `CharacterDNA`, `reference_pack`, `StyleBible`, lock/version, wardrobe/
   physical-state variants) exists per ADR-012/013 and a `FakeImageProvider`
@@ -1939,7 +2010,7 @@ project/assets/jobs/reviews" actually activates.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Rate-limiting/deployment/hardening (MODULE-068-070), testing/eval
+- Deployment/hardening (MODULE-069-070), testing/eval
   frameworks (MODULE-071-076), backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;

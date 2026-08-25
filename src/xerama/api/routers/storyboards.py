@@ -4,8 +4,9 @@
 keyframe -> QC state -> accept/retry."
 """
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from xerama.api.authorization import get_current_user, get_project_membership_repo
 from xerama.api.deps import (
@@ -14,9 +15,11 @@ from xerama.api.deps import (
     get_image_router,
     get_retake_service,
     get_series_repo,
+    get_session,
     get_storyboard_service,
     get_style_bible_repo,
 )
+from xerama.api.rate_limiting import guarded_generation
 from xerama.api.shot_lookup import episode_context, find_shot
 from xerama.domain.asset import Asset
 from xerama.domain.auth import User
@@ -115,6 +118,7 @@ async def get_storyboard(
 @router.post("/storyboards/{storyboard_id}/keyframes/generate", response_model=Asset)
 async def generate_keyframe(
     storyboard_id: str,
+    http_request: Request,
     service: StoryboardService = Depends(get_storyboard_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
@@ -123,6 +127,7 @@ async def generate_keyframe(
     cost_service: CostRecordService = Depends(get_cost_service),
     user: User | None = Depends(get_current_user),
     membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
+    session: AsyncSession = Depends(get_session),
 ) -> Asset:
     try:
         storyboard = await service.get(storyboard_id)
@@ -145,9 +150,13 @@ async def generate_keyframe(
     request = PromptCompiler().compile_shot(shot, scene, cast, bible, style_bible)
 
     try:
-        asset = await service.generate_keyframe(
-            storyboard_id, series.project_id, request, image_router, series_id=episode.series_id
-        )
+        async with guarded_generation(
+            http_request, session, series.project_id,
+            duplicate_key=f"{series.project_id}:keyframe:{storyboard_id}",
+        ):
+            asset = await service.generate_keyframe(
+                storyboard_id, series.project_id, request, image_router, series_id=episode.series_id
+            )
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     await cost_service.record_generation_attempts(
@@ -167,6 +176,7 @@ async def generate_keyframe(
 @router.post("/storyboards/{storyboard_id}/keyframes/auto-heal", response_model=Asset)
 async def generate_keyframe_with_auto_heal(
     storyboard_id: str,
+    http_request: Request,
     service: StoryboardService = Depends(get_storyboard_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
@@ -175,6 +185,7 @@ async def generate_keyframe_with_auto_heal(
     retake_service: AutomaticRetakeService = Depends(get_retake_service),
     user: User | None = Depends(get_current_user),
     membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
+    session: AsyncSession = Depends(get_session),
 ) -> Asset:
     """MODULE-045 - generate, QC-gate, and automatically repair-and-retry
     a keyframe (stronger refs / prompt repair / alternate provider / full
@@ -202,16 +213,20 @@ async def generate_keyframe_with_auto_heal(
     request = PromptCompiler().compile_shot(shot, scene, cast, bible, style_bible)
 
     try:
-        asset, _ = await service.generate_with_auto_heal(
-            storyboard_id,
-            series.project_id,
-            request,
-            image_router,
-            retake_service,
-            series_id=episode.series_id,
-            style_dna=style_bible.style_dna,
-            character_reference_ids=list(request.references.character_asset_ids),
-        )
+        async with guarded_generation(
+            http_request, session, series.project_id,
+            duplicate_key=f"{series.project_id}:keyframe:{storyboard_id}",
+        ):
+            asset, _ = await service.generate_with_auto_heal(
+                storyboard_id,
+                series.project_id,
+                request,
+                image_router,
+                retake_service,
+                series_id=episode.series_id,
+                style_dna=style_bible.style_dna,
+                character_reference_ids=list(request.references.character_asset_ids),
+            )
         return asset
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

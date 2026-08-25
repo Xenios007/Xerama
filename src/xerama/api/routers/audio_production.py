@@ -1,7 +1,8 @@
 """Shot dialogue/audio production endpoints (MODULE-035)."""
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from xerama.api.authorization import get_current_user, get_project_membership_repo
 from xerama.api.deps import (
@@ -10,8 +11,10 @@ from xerama.api.deps import (
     get_episode_repo,
     get_retake_service,
     get_series_repo,
+    get_session,
     get_voice_router,
 )
+from xerama.api.rate_limiting import guarded_generation
 from xerama.api.shot_lookup import episode_context, find_shot
 from xerama.domain.asset import Asset
 from xerama.domain.audio_production import ShotAudioProduction
@@ -103,6 +106,7 @@ async def get_audio_production(
 async def generate_dialogue_take(
     production_id: str,
     body: DialogueTakeRequest,
+    http_request: Request,
     service: AudioProductionService = Depends(get_audio_production_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
@@ -110,6 +114,7 @@ async def generate_dialogue_take(
     cost_service: CostRecordService = Depends(get_cost_service),
     user: User | None = Depends(get_current_user),
     membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
+    session: AsyncSession = Depends(get_session),
 ) -> Asset:
     try:
         production = await service.get(production_id)
@@ -133,10 +138,14 @@ async def generate_dialogue_take(
             )
 
     try:
-        asset = await service.generate_dialogue_take(
-            production_id, series.project_id, body.character_id, text, voice_router,
-            series_id=episode.series_id,
-        )
+        async with guarded_generation(
+            http_request, session, series.project_id,
+            duplicate_key=f"{series.project_id}:dialogue-take:{production_id}",
+        ):
+            asset = await service.generate_dialogue_take(
+                production_id, series.project_id, body.character_id, text, voice_router,
+                series_id=episode.series_id,
+            )
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     await cost_service.record_generation_attempts(
@@ -157,6 +166,7 @@ async def generate_dialogue_take(
 async def generate_dialogue_take_with_auto_heal(
     production_id: str,
     body: DialogueTakeRequest,
+    http_request: Request,
     service: AudioProductionService = Depends(get_audio_production_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
@@ -164,6 +174,7 @@ async def generate_dialogue_take_with_auto_heal(
     retake_service: AutomaticRetakeService = Depends(get_retake_service),
     user: User | None = Depends(get_current_user),
     membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
+    session: AsyncSession = Depends(get_session),
 ) -> Asset:
     """MODULE-045 - see storyboards.py's `generate_keyframe_with_auto_heal`;
     same generate -> QC-gate -> repair-and-retry loop for dialogue takes."""
@@ -189,10 +200,14 @@ async def generate_dialogue_take_with_auto_heal(
             )
 
     try:
-        asset, _ = await service.generate_with_auto_heal(
-            production_id, series.project_id, body.character_id, text, voice_router, retake_service,
-            series_id=episode.series_id,
-        )
+        async with guarded_generation(
+            http_request, session, series.project_id,
+            duplicate_key=f"{series.project_id}:dialogue-take:{production_id}",
+        ):
+            asset, _ = await service.generate_with_auto_heal(
+                production_id, series.project_id, body.character_id, text, voice_router, retake_service,
+                series_id=episode.series_id,
+            )
         return asset
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

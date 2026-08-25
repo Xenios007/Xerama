@@ -4,6 +4,26 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-068 - Rate Limits/Abuse Protection)
+
+- `pipeline/rate_limiting.py` - in-memory `RateLimiter` (process
+  lifetime, `app.state.rate_limiter`): sliding-window request-rate
+  check, per-project concurrency slots, duplicate-in-flight-request
+  suppression.
+- `services/budget_service.py` - `BudgetGuard` hard ceiling check
+  against real cost records (never fabricates unknown cost).
+- `api/rate_limiting.py` - `guarded_generation` wraps the provider call
+  in every expensive endpoint (keyframe/video/dialogue generation +
+  auto-heal/lip-sync, generate-series, episode generate/next/range);
+  429+Retry-After / 402 / 409 on the respective guard tripping.
+- All new `Settings` fields default to permissive/unlimited - standard
+  mode and the full pre-existing 587-test suite are unaffected; hosted
+  deployments tighten via env vars.
+- Found (documented, not fixed here - out of scope) a pre-existing
+  TOCTOU race in `StyleBibleRepository.get_or_create`-style methods
+  under true concurrent first callers.
+- 20 new tests; full suite green (607 passed, up from 587).
+
 ### Added (MODULE-067 - Authentication/Authorization)
 
 - `User`/`AuthSession`/`ProjectMembership` (owner/editor/viewer) +

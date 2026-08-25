@@ -4,8 +4,9 @@
 traceable takes and continuity metadata using fake providers end to end."
 """
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from xerama.api.authorization import get_current_user, get_project_membership_repo
 from xerama.api.deps import (
@@ -15,11 +16,13 @@ from xerama.api.deps import (
     get_lip_sync_router,
     get_retake_service,
     get_series_repo,
+    get_session,
     get_storyboard_service,
     get_style_bible_repo,
     get_video_production_service,
     get_video_router,
 )
+from xerama.api.rate_limiting import guarded_generation
 from xerama.api.shot_lookup import episode_context, find_shot
 from xerama.domain.asset import Asset
 from xerama.domain.auth import User
@@ -126,6 +129,7 @@ async def get_video_production(
 @router.post("/video-productions/{production_id}/takes/generate", response_model=Asset)
 async def generate_take(
     production_id: str,
+    http_request: Request,
     service: VideoProductionService = Depends(get_video_production_service),
     storyboard_service: StoryboardService = Depends(get_storyboard_service),
     asset_service: AssetService = Depends(get_asset_service),
@@ -136,6 +140,7 @@ async def generate_take(
     cost_service: CostRecordService = Depends(get_cost_service),
     user: User | None = Depends(get_current_user),
     membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
+    session: AsyncSession = Depends(get_session),
 ) -> Asset:
     try:
         production = await service.get(production_id)
@@ -168,14 +173,18 @@ async def generate_take(
             keyframe_bytes = None
 
     try:
-        asset = await service.generate_take(
-            production_id,
-            series.project_id,
-            request,
-            video_router,
-            keyframe_bytes=keyframe_bytes,
-            series_id=episode.series_id,
-        )
+        async with guarded_generation(
+            http_request, session, series.project_id,
+            duplicate_key=f"{series.project_id}:video-take:{production_id}",
+        ):
+            asset = await service.generate_take(
+                production_id,
+                series.project_id,
+                request,
+                video_router,
+                keyframe_bytes=keyframe_bytes,
+                series_id=episode.series_id,
+            )
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ContinuityOrderingError as exc:
@@ -197,6 +206,7 @@ async def generate_take(
 @router.post("/video-productions/{production_id}/takes/auto-heal", response_model=Asset)
 async def generate_take_with_auto_heal(
     production_id: str,
+    http_request: Request,
     service: VideoProductionService = Depends(get_video_production_service),
     storyboard_service: StoryboardService = Depends(get_storyboard_service),
     asset_service: AssetService = Depends(get_asset_service),
@@ -207,6 +217,7 @@ async def generate_take_with_auto_heal(
     retake_service: AutomaticRetakeService = Depends(get_retake_service),
     user: User | None = Depends(get_current_user),
     membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
+    session: AsyncSession = Depends(get_session),
 ) -> Asset:
     """MODULE-045 - see storyboards.py's `generate_keyframe_with_auto_heal`;
     same generate -> QC-gate -> repair-and-retry loop for video takes."""
@@ -241,16 +252,20 @@ async def generate_take_with_auto_heal(
             keyframe_bytes = None
 
     try:
-        asset, _ = await service.generate_with_auto_heal(
-            production_id,
-            series.project_id,
-            request,
-            video_router,
-            retake_service,
-            keyframe_bytes=keyframe_bytes,
-            series_id=episode.series_id,
-            character_reference_ids=list(request.references.character_asset_ids),
-        )
+        async with guarded_generation(
+            http_request, session, series.project_id,
+            duplicate_key=f"{series.project_id}:video-take:{production_id}",
+        ):
+            asset, _ = await service.generate_with_auto_heal(
+                production_id,
+                series.project_id,
+                request,
+                video_router,
+                retake_service,
+                keyframe_bytes=keyframe_bytes,
+                series_id=episode.series_id,
+                character_reference_ids=list(request.references.character_asset_ids),
+            )
         return asset
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -264,12 +279,14 @@ async def generate_take_with_auto_heal(
 async def generate_lip_synced_take(
     production_id: str,
     body: LipSyncTakeRequest,
+    http_request: Request,
     service: VideoProductionService = Depends(get_video_production_service),
     episode_repo: EpisodeRepository = Depends(get_episode_repo),
     series_repo: SeriesRepository = Depends(get_series_repo),
     lip_sync_router: MediaProviderRouter[LipSyncProvider] = Depends(get_lip_sync_router),
     user: User | None = Depends(get_current_user),
     membership_repo: ProjectMembershipRepository = Depends(get_project_membership_repo),
+    session: AsyncSession = Depends(get_session),
 ) -> Asset:
     """Synchronize a controlled dialogue take (MODULE-034/035) onto this
     shot's video (MODULE-036) - only when native audio is insufficient."""
@@ -290,18 +307,22 @@ async def generate_lip_synced_take(
             blocking_plan = shot.blocking_plan
 
     try:
-        return await service.generate_lip_synced_take(
-            production_id,
-            series.project_id,
-            body.source_video_asset_id,
-            body.source_audio_asset_id,
-            lip_sync_router,
-            body.duration_seconds,
-            aspect_ratio=body.aspect_ratio,
-            character_id=body.character_id,
-            blocking_plan=blocking_plan,
-            series_id=series.id,
-        )
+        async with guarded_generation(
+            http_request, session, series.project_id,
+            duplicate_key=f"{series.project_id}:lip-sync:{production_id}",
+        ):
+            return await service.generate_lip_synced_take(
+                production_id,
+                series.project_id,
+                body.source_video_asset_id,
+                body.source_audio_asset_id,
+                lip_sync_router,
+                body.duration_seconds,
+                aspect_ratio=body.aspect_ratio,
+                character_id=body.character_id,
+                blocking_plan=blocking_plan,
+                series_id=series.id,
+            )
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except LipSyncEligibilityError as exc:
