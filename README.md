@@ -104,6 +104,11 @@ Use audience performance data to improve hooks, pacing, reveals, cliffhangers, e
 - **XER-009** — Scene & Shot Planner
 - **XER-010** — Story Quality Scoring
 
+## Deployment
+
+See `docs/DEPLOYMENT.md` for local/container setup, environment
+separation, and the hosted (PostgreSQL/object storage) path.
+
 ## Status
 
 Early architecture and research stage.

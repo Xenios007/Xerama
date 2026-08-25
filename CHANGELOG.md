@@ -4,6 +4,20 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-069 - Deployment Architecture)
+
+- `docs/DEPLOYMENT.md` - component topology, local/container quickstart,
+  environment separation, startup sequence, and the documented (not yet
+  implemented) PostgreSQL/object-storage hosted path.
+- `Dockerfile` (python:3.12-slim + ffmpeg, migrate-then-serve) and
+  `docker-compose.yml` (persistent volume, health check).
+- `.env.example` brought back in sync with `config.py` (MODULE-066/067/068
+  settings were missing).
+- `scripts/smoke_test.sh` - fresh venv, real install, migration, uvicorn
+  boot, health/readiness polling. Actually run against this repo; caught
+  and fixed a Git Bash/MSYS path-translation bug in the process
+  (untranslated POSIX path silently breaking SQLite's DSN on Windows).
+
 ### Added (MODULE-068 - Rate Limits/Abuse Protection)
 
 - `pipeline/rate_limiting.py` - in-memory `RateLimiter` (process

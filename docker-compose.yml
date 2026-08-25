@@ -1,0 +1,28 @@
+# MODULE-069 - reproducible local/hosted process topology. Not required
+# for day-to-day development (`uvicorn`/`npm run dev` directly is
+# faster - see docs/DEPLOYMENT.md "Local development"); this is for
+# reproducing a close-to-production topology on a clean machine, or as
+# a starting point for a real hosted deployment.
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Overridable, but these are the container-local paths the
+      # Dockerfile's VOLUME already points at.
+      DATABASE_URL: sqlite+aiosqlite:////app/data/xerama.db
+      ASSET_STORAGE_PATH: /app/data/storage
+    volumes:
+      - xerama-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  xerama-data:

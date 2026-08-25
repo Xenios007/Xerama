@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-068 (Rate Limits/Abuse Protection)._
+_Last updated: 2026-08-25 - MODULE-069 (Deployment Architecture)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1976,6 +1976,53 @@ env vars.
   all fire correctly) - full suite green (607 passed, up from 587), the
   entire 587-test permissive-default suite unaffected.
 
+### MODULE-069 - Deployment Architecture
+
+- **`docs/DEPLOYMENT.md`** (new) - component topology (API/worker/
+  frontend/DB/asset-storage/FFmpeg), the local Trial-01 quickstart, the
+  container path, the in-process/per-worker caveat on MODULE-068's
+  `RateLimiter` under a future multi-process hosted deployment,
+  environment separation (`XERAMA_MODE`, CORS, secrets, rate/budget
+  ceilings), the startup sequence (migrate-before-bind, why), and the
+  hosted PostgreSQL/object-storage path - documented per
+  docs/ARCHITECTURE.md section 14 ("can wait until the pilot works") as
+  a seam that already exists in code (repository/provider Protocols -
+  ADR-021/022) but has no concrete adapter yet, not a claim that it
+  works today.
+- **`Dockerfile`** (new) - `python:3.12-slim` + `ffmpeg` installed (so a
+  container run is real, not silently degraded to fake providers),
+  installs the package, runs `alembic upgrade head` before `uvicorn`
+  binds. **`docker-compose.yml`** (new) - the same image with a
+  persistent volume for the SQLite file + local asset storage and a
+  `/health` healthcheck.
+- **`.env.example`** updated with every setting added since it was last
+  touched (MODULE-066/067/068's `MAX_UPLOAD_SIZE_BYTES`,
+  `RATE_LIMIT_*`, `PROJECT_BUDGET_CEILING_USD`) plus explanatory
+  comments on `XERAMA_MODE`'s hosted-mode behavior - it had drifted out
+  of sync with `config.py`.
+- **`scripts/smoke_test.sh`** (new) - this module's own verification
+  requirement ("clean-environment startup/build smoke test") done
+  literally: fresh `venv`, real (non-`[dev]`) `pip install -e .`,
+  `alembic upgrade head` against a scratch DB, a real `uvicorn` process
+  boot, polling `/health` and `/health/ready` until both succeed or a
+  timeout fails the script. **Actually run** (not just written) against
+  this repository - passed cleanly end to end, including a real bug it
+  caught and the fix now baked into the script: Git Bash/MSYS only
+  auto-translates a POSIX temp path to a real Windows path when it's a
+  whole argv entry, not when it's embedded inside a larger string like
+  a `DATABASE_URL` DSN - the DSN was silently passing an untranslated
+  `/tmp/...` path to a Windows Python process, which
+  `sqlite3.OperationalError: unable to open database file`'d
+  immediately. Fixed by resolving a Windows-safe path (`cygpath -m`,
+  falling back to the raw path on real Linux) before embedding it in
+  any URL/env-var string.
+- Acceptance criterion met: "a new machine can start Xerama from
+  documented steps with no hidden local assumptions" - proven by
+  actually running `scripts/smoke_test.sh` against a from-scratch
+  virtualenv, not by inspection. No test-suite changes (this module is
+  documentation/infrastructure, not application code) - full suite
+  still green (607 passed, unaffected).
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2010,7 +2057,7 @@ env vars.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Deployment/hardening (MODULE-069-070), testing/eval
+- Production hardening (MODULE-070), testing/eval
   frameworks (MODULE-071-076), backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
