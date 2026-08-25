@@ -414,6 +414,24 @@ class Asset(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
+class EpisodeRender(Base):
+    """See MODULE-047. One row per render *version* - never overwritten;
+    `status` (draft/approved/superseded) tracks which version is
+    "current" (ADR-019)."""
+
+    __tablename__ = "episode_renders"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    episode_id: Mapped[str] = mapped_column(ForeignKey("episodes.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    render_asset_id: Mapped[str] = mapped_column(String(32))
+    parent_render_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_script_version: Mapped[int] = mapped_column(Integer)
+    input_asset_ids: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 class MediaQCAttempt(Base):
     """See MODULE-044. Never overwritten - each QC pass on an asset (one
     dimension at a time) inserts a new row, giving a full audit trail

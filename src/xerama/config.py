@@ -71,9 +71,12 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite+aiosqlite:///./xerama.db"
     asset_storage_path: str = "./storage"
-    # Binary name/path for last-frame extraction (Module 08/MODULE-032) -
-    # override if ffmpeg isn't on PATH under this exact name.
+    # Binary name/path for last-frame extraction (Module 08/MODULE-032) and
+    # episode assembly (MODULE-046) - override if ffmpeg isn't on PATH
+    # under this exact name.
     ffmpeg_path: str = "ffmpeg"
+    # Binary name/path for export validation (MODULE-048).
+    ffprobe_path: str = "ffprobe"
 
     concept_model_a: str = ""
     concept_model_b: str = ""

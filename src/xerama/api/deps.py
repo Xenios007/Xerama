@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.pipeline.episode_engine import EpisodeEngine
 from xerama.pipeline.orchestrator import Showrunner
+from xerama.providers.assembler import EpisodeAssembler
 from xerama.providers.frame_extractor import FrameExtractor
+from xerama.providers.media_inspector import MediaInspector
 from xerama.providers.image import ImageProvider
 from xerama.providers.lip_sync import LipSyncProvider
 from xerama.providers.local_storage import LocalStorageProvider
@@ -23,6 +25,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyAudioProductionRepository,
     SQLAlchemyCharacterCastingRepository,
     SQLAlchemyConceptRepository,
+    SQLAlchemyEpisodeRenderRepository,
     SQLAlchemyEpisodeRepository,
     SQLAlchemyJobRepository,
     SQLAlchemyMediaQCRepository,
@@ -37,9 +40,11 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyVideoProductionRepository,
     SQLAlchemyVoiceProfileRepository,
 )
+from xerama.services.assembly_service import EpisodeAssemblyService
 from xerama.services.asset_service import AssetService
 from xerama.services.audio_production_service import AudioProductionService
 from xerama.services.character_casting_service import CharacterCastingService
+from xerama.services.export_service import VerticalExportService
 from xerama.services.media_qc_service import MediaQCService
 from xerama.services.music_cue_service import MusicCueService
 from xerama.services.retake_service import AutomaticRetakeService
@@ -196,6 +201,46 @@ def get_sound_effect_cue_service(
 
 def get_subtitle_service(session: AsyncSession = Depends(get_session)) -> SubtitleService:
     return SubtitleService(repo=SQLAlchemySubtitleCueRepository(session))
+
+
+def get_episode_assembler(request: Request) -> EpisodeAssembler:
+    return request.app.state.episode_assembler
+
+
+def get_assembly_service(
+    session: AsyncSession = Depends(get_session),
+    storage: LocalStorageProvider = Depends(get_storage_provider),
+    assembler: EpisodeAssembler = Depends(get_episode_assembler),
+) -> EpisodeAssemblyService:
+    return EpisodeAssemblyService(
+        episode_repo=SQLAlchemyEpisodeRepository(session),
+        video_production_repo=SQLAlchemyVideoProductionRepository(session),
+        audio_production_repo=SQLAlchemyAudioProductionRepository(session),
+        music_cue_repo=SQLAlchemyMusicCueRepository(session),
+        sfx_cue_repo=SQLAlchemySoundEffectCueRepository(session),
+        subtitle_repo=SQLAlchemySubtitleCueRepository(session),
+        render_repo=SQLAlchemyEpisodeRenderRepository(session),
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        assembler=assembler,
+    )
+
+
+def get_media_inspector(request: Request) -> MediaInspector:
+    return request.app.state.media_inspector
+
+
+def get_export_service(
+    session: AsyncSession = Depends(get_session),
+    storage: LocalStorageProvider = Depends(get_storage_provider),
+    assembly_service: EpisodeAssemblyService = Depends(get_assembly_service),
+    inspector: MediaInspector = Depends(get_media_inspector),
+) -> VerticalExportService:
+    return VerticalExportService(
+        assembly_service=assembly_service,
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        subtitle_repo=SQLAlchemySubtitleCueRepository(session),
+        inspector=inspector,
+    )
 
 
 def get_project_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyProjectRepository:

@@ -26,6 +26,7 @@ from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan, Scene as SceneDTO, Shot as ShotDTO
 from xerama.domain.audio_production import ShotAudioProduction
+from xerama.domain.episode_render import EpisodeRender
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
 from xerama.domain.rights import RightsMetadata
@@ -1782,3 +1783,85 @@ class SQLAlchemyMediaQCRepository:
         )
         row = result.scalars().first()
         return _media_qc_attempt(row) if row is not None else None
+
+
+def _episode_render(row: m.EpisodeRender) -> EpisodeRender:
+    return EpisodeRender(
+        id=row.id,
+        episode_id=row.episode_id,
+        version=row.version,
+        status=row.status,
+        render_asset_id=row.render_asset_id,
+        parent_render_id=row.parent_render_id,
+        source_script_version=row.source_script_version,
+        input_asset_ids=row.input_asset_ids,
+        created_at=row.created_at,
+    )
+
+
+class SQLAlchemyEpisodeRenderRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        episode_id: str,
+        render_asset_id: str,
+        source_script_version: int,
+        input_asset_ids: list[str],
+        parent_render_id: str | None = None,
+    ) -> EpisodeRender:
+        result = await self._session.execute(
+            select(m.EpisodeRender).where(m.EpisodeRender.episode_id == episode_id)
+        )
+        existing = result.scalars().all()
+        version = max((row.version for row in existing), default=0) + 1
+        row = m.EpisodeRender(
+            episode_id=episode_id,
+            version=version,
+            render_asset_id=render_asset_id,
+            parent_render_id=parent_render_id,
+            source_script_version=source_script_version,
+            input_asset_ids=input_asset_ids,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _episode_render(row)
+
+    async def get(self, render_id: str) -> EpisodeRender | None:
+        row = await self._session.get(m.EpisodeRender, render_id)
+        return _episode_render(row) if row is not None else None
+
+    async def list_by_episode(self, episode_id: str) -> list[EpisodeRender]:
+        result = await self._session.execute(
+            select(m.EpisodeRender)
+            .where(m.EpisodeRender.episode_id == episode_id)
+            .order_by(m.EpisodeRender.version)
+        )
+        return [_episode_render(row) for row in result.scalars()]
+
+    async def approve(self, render_id: str) -> EpisodeRender:
+        row = await self._session.get(m.EpisodeRender, render_id)
+        if row is None:
+            raise ValueError(f"episode render {render_id} not found")
+        result = await self._session.execute(
+            select(m.EpisodeRender).where(
+                m.EpisodeRender.episode_id == row.episode_id,
+                m.EpisodeRender.status == "approved",
+                m.EpisodeRender.id != render_id,
+            )
+        )
+        for other in result.scalars():
+            other.status = "superseded"
+        row.status = "approved"
+        await self._session.flush()
+        return _episode_render(row)
+
+    async def get_current(self, episode_id: str) -> EpisodeRender | None:
+        result = await self._session.execute(
+            select(m.EpisodeRender).where(
+                m.EpisodeRender.episode_id == episode_id, m.EpisodeRender.status == "approved"
+            )
+        )
+        row = result.scalars().first()
+        return _episode_render(row) if row is not None else None

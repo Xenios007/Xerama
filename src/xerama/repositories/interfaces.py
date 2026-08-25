@@ -17,6 +17,7 @@ from xerama.domain.brief import CreativeBrief
 from xerama.domain.canon import CanonEvent
 from xerama.domain.character import Character, CharacterCast, PhysicalStateVariant, WardrobeVariant
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
+from xerama.domain.episode_render import EpisodeRender
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
 from xerama.domain.quality import QCResult
@@ -530,3 +531,32 @@ class MediaQCRepository(Protocol):
     async def get_latest(
         self, asset_id: str, dimension: MediaQCDimension
     ) -> MediaQCAttempt | None: ...
+
+
+class EpisodeRenderRepository(Protocol):
+    """See MODULE-047. Every `create` call inserts a new, immutable
+    version row - never overwritten or deleted."""
+
+    async def create(
+        self,
+        episode_id: str,
+        render_asset_id: str,
+        source_script_version: int,
+        input_asset_ids: list[str],
+        parent_render_id: str | None = None,
+    ) -> EpisodeRender: ...
+
+    async def get(self, render_id: str) -> EpisodeRender | None: ...
+
+    async def list_by_episode(self, episode_id: str) -> list[EpisodeRender]: ...
+
+    async def approve(self, render_id: str) -> EpisodeRender:
+        """Sets this render `approved` and every other render for the
+        same episode currently `approved` to `superseded` - "current" is
+        always exactly zero or one row per episode. Re-approving an older
+        `superseded` row is how rollback works."""
+        ...
+
+    async def get_current(self, episode_id: str) -> EpisodeRender | None:
+        """The single `approved` render for this episode, if any."""
+        ...

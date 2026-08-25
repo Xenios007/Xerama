@@ -4,6 +4,39 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-046 / MODULE-047 / MODULE-048 - FFmpeg Assembly, Episode Versioning, Vertical Export)
+
+- `AssemblyPlan`/`RenderManifest`/`OutputSpec` (`domain/assembly.py`) +
+  `pipeline/assembly_plan_builder.py:build_assembly_plan` - deterministic
+  shot-plan -> render-plan construction (audio-mode-aware: only `hybrid`
+  dialogue needs a separate mixed-in track; `native`/`tts_lipsync` audio
+  is already embedded in the video take).
+- `EpisodeAssembler` Protocol + real 4-stage `FFmpegAssembler`
+  (normalize/concat/mix/subtitle-mux, explicit argv, no shell) +
+  `FakeAssembler`.
+- `EpisodeAssemblyService.render_episode` - exports subtitles to SRT and
+  ingests them as an asset when present, resolves every input asset's
+  bytes/content_hash, renders, and persists a take-numbered episode
+  `Asset` with a reproducible manifest in its provenance.
+- `EpisodeRender` (`domain/episode_render.py`) - versioned workflow record
+  (draft/approved/superseded - "current" is a single-row invariant,
+  enabling rollback via re-approving an older `superseded` row) +
+  `pipeline/render_staleness.py:check_staleness` (pure, on-demand dirty
+  detection against the episode's current script version/input assets).
+- `ExportProfile`/`MediaProbeResult` (`domain/export.py`) +
+  `MediaInspector` Protocol + real `FFprobeInspector` + `FakeMediaInspector`
+  + `pipeline/export_validation.py:validate_export` (duration/aspect/
+  streams/corruption + MODULE-039's subtitle readability check folded in).
+  `VerticalExportService.export_episode` reuses `render_episode` rather
+  than a second encode pipeline.
+- New API: `POST /episodes/{id}/render`, `GET /episodes/{id}/renders[/current]`,
+  `GET|POST /episode-renders/{id}[/approve|/staleness]`,
+  `POST /episodes/{id}/export`.
+- Migration `c3d4e5f6a7b8_add_episode_renders`.
+- 28 new tests (10 plan-builder, 7 assembly-service, 8 export-validation,
+  3 export-service) plus 4 new API end-to-end tests; full suite (471)
+  green.
+
 ### Added (MODULE-045 - Automatic Retakes)
 
 - `RepairAction` (stronger_references/prompt_repair/alternate_provider/

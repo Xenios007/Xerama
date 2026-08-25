@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-045 (Automatic Retakes)._
+_Last updated: 2026-08-25 - MODULE-046/047/048 (FFmpeg Assembly, Episode Versioning, Vertical Export)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1120,6 +1120,115 @@ own.
   plus one API-level end-to-end test, and the full existing suite (424
   tests) staying green unmodified in behavior.
 
+### MODULE-046 / MODULE-047 / MODULE-048 - FFmpeg Assembly, Episode Versioning, Vertical Export
+
+Built together as one cohesive delivery - 047 (versioning) and 048
+(export) are both thin layers directly on top of 046's render primitive,
+and 048 explicitly reuses 046's render rather than a second encode path
+(see below).
+
+- **`AssemblyPlan`/`RenderManifest`** (`domain/assembly.py`) - `ClipSegment`
+  (one shot's approved video take, positioned at its cumulative timeline
+  offset - same convention as `pipeline/subtitle_generation.py`),
+  `AudioTrackSegment` (a *supplemental* layer only - hybrid dialogue/
+  music/SFX, never a replacement for a clip's own embedded audio),
+  `OutputSpec` (fps/resolution/codec/bitrate, default 1080x1920 9:16 per
+  ADR-015). `RenderManifest` records the plan plus every input asset's
+  content_hash and the exact FFmpeg argv used - the "reproducible render
+  manifest" requirement, persisted verbatim in the output asset's
+  `provenance.generation_params`.
+- **`pipeline/assembly_plan_builder.py:build_assembly_plan`** -
+  deterministic, no LLM call: walks the approved shot plan in scene/shot
+  order, pulls each shot's *approved* video take, raising
+  `IncompleteProductionError` for any shot missing one (never silently
+  renders a partial episode). Audio-mode-aware: `native`/`tts_lipsync`
+  dialogue is already embedded in the video take itself (a lip-sync
+  provider muxes its own audio - MODULE-036), so only `hybrid` shots
+  contribute a separate dialogue `AudioTrackSegment`; only `approved`
+  music/SFX cues with a linked asset are included, music gain derived
+  from `MusicCue.ducking_db`.
+- **`EpisodeAssembler`** (`providers/assembler.py`) - a plain Protocol,
+  not a `MediaProviderRouter` pool (there is exactly one real "vendor" -
+  FFmpeg itself, per ADR-025 - not several to fall back across).
+  `FFmpegAssembler` (`providers/ffmpeg_assembler.py`) is a real, 4-stage
+  subprocess pipeline (per-clip trim/scale/pad normalize -> concat
+  demuxer -> supplemental `adelay`/`volume`/`amix`/`loudnorm` audio mix if
+  any tracks exist -> optional `mov_text` subtitle mux), every stage an
+  explicit argv list (no shell string, no injection surface) - not
+  exercised by the test suite since no `ffmpeg` binary is assumed
+  installed (same precedent as `FFmpegFrameExtractor`).
+  `FakeAssembler`/`FakeMediaInspector`/`FFprobeInspector` follow the same
+  "optional real adapter" pattern.
+- **`EpisodeAssemblyService.render_episode`** (`services/assembly_service.py`)
+  - exports the episode's `SubtitleCue`s to SRT and ingests them as a
+    `type=subtitle` `Asset` on the fly when any exist (closing the loop
+    on MODULE-039's "add subtitles" without new subtitle-asset
+    infrastructure), builds the plan, resolves every referenced asset's
+    bytes + content_hash via `AssetService`, calls the assembler, and
+    ingests the result as a take-numbered episode-level `Asset`
+    (`type=video`, no scene/shot ownership).
+- **`EpisodeRender`** (`domain/episode_render.py`, MODULE-047) - one row
+  per render *version*, mirroring `Storyboard`'s workflow-record pattern
+  but with a third `status` value, `superseded`, so "current" is a
+  single-row invariant instead of SeasonPlanRecord's "latest that's still
+  approved" ambiguity (which can't express rollback cleanly).
+  `EpisodeRenderRepository.approve` sets the target `approved` and
+  demotes any other currently-`approved` row for that episode to
+  `superseded` in the same call - re-approving an older `superseded` row
+  *is* rollback, with the render's content (asset, manifest, version)
+  never mutated (ADR-019 "never overwrite a published/approved version
+  silently"). `parent_render_id` records what was current at render time
+  ("record parent/source versions").
+- **`pipeline/render_staleness.py:check_staleness`** - "define dirty/
+  stale propagation" implemented as a pure, on-demand comparison (render's
+  `source_script_version`/`input_asset_ids` vs. the episode's current
+  script version and what `build_assembly_plan` would use *right now*)
+  rather than an eager write-time hook scattered across every place a
+  shot's approved take could change - can't drift out of sync the way a
+  push-based flag could, and needs no new state.
+- **MODULE-048 (Vertical Export)** - `ExportProfile`
+  (`domain/export.py`, wraps an `OutputSpec` - "configurable codec/
+  bitrate/FPS/audio settings" via the same shape MODULE-046 already has,
+  no parallel settings type) with a `VERTICAL_1080_1920` default preset.
+  `VerticalExportService.export_episode` (`services/export_service.py`)
+  is deliberately *not* a second encode pipeline - it calls
+  `EpisodeAssemblyService.render_episode` with the profile's `OutputSpec`
+  (an export *is* a render, parameterized), then layers ffprobe-backed
+  validation on top via `pipeline/export_validation.py:validate_export`:
+  duration/aspect/streams/corruption from `MediaInspector.inspect`, plus
+  MODULE-039's existing `SubtitleValidator.check_readability` folded in
+  as warnings rather than a second safe-area implementation. Only
+  unambiguous evidence (ffprobe itself failing, no video stream) BLOCKs;
+  an unmeasured value (no real ffprobe wired up yet) WARNs - same
+  precedent as MODULE-044's deterministic checks.
+- **API** - `POST /episodes/{id}/render`, `GET /episodes/{id}/renders`,
+  `GET /episodes/{id}/renders/current`, `GET /episode-renders/{id}`,
+  `POST /episode-renders/{id}/approve` (rollback-capable),
+  `GET /episode-renders/{id}/staleness`,
+  `POST /episodes/{id}/export` (render at the default vertical profile +
+  validation report in one call). `IncompleteProductionError` -> 409.
+- **Migrations** - `alembic/versions/c3d4e5f6a7b8_add_episode_renders.py`
+  (no schema change needed for 046/048 - they only produce/read `Asset`
+  rows, already fully general).
+- Acceptance criteria met: accepted assets render into a playable episode
+  automatically with a reproducible manifest (046); every final episode
+  traces to exact source assets via `input_asset_ids`/`input_content_hashes`
+  and can be regenerated, rolled back, or checked for staleness without
+  ever silently overwriting a prior version (047); rendered episodes
+  produce a validated vertical deliverable plus a structured pass/warn/
+  block report (048) - verified by 10 plan-builder tests (native/
+  tts_lipsync-no-separate-track, hybrid-requires-and-adds-a-track,
+  missing-take-error, cumulative offsets, approved-only cue filtering,
+  ducking-to-gain, default/custom output spec), 7 assembly-service tests
+  (ingest+manifest, incomplete-production error, version 2 + parent link,
+  supersede-on-approve, rollback, staleness true/false, subtitle
+  inclusion), 8 export-validation tests (every PASS/WARN/BLOCK branch),
+  3 export-service tests (render+validate, profile honored, corrupt-probe
+  BLOCK), and 4 API end-to-end tests (render/approve/staleness flow,
+  409-when-incomplete, export-with-report) - 459 tests before this
+  module's additions, 471 after - with unchanged behavior for every
+  existing call site.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1141,14 +1250,14 @@ own.
 ## Planned (not started)
 
 - Real (paid/free) video/voice/lip-sync/vision-QC provider adapters and
-  real `ffmpeg` last-frame extraction verification - the contracts/
-  router/registries/fake implementations these will plug into already
-  exist (MODULE-006/007/029/032/034/036/044).
-- FFmpeg assembly/versioning/export (MODULE-046-048), cost/observability
-  (MODULE-049-050), remaining APIs/frontend (MODULE-051-060), analytics/
-  learning (MODULE-061-065), security/deployment/hardening
-  (MODULE-066-070), testing/eval frameworks (MODULE-071-076), backup/
-  migration/docs/release (MODULE-077-080).
+  real `ffmpeg`/`ffprobe` last-frame-extraction/assembly/inspection
+  verification - the contracts/router/registries/fake implementations
+  these will plug into already exist (MODULE-006/007/029/032/034/036/
+  044/046/048).
+- Cost/observability (MODULE-049-050), remaining APIs/frontend
+  (MODULE-051-060), analytics/learning (MODULE-061-065), security/
+  deployment/hardening (MODULE-066-070), testing/eval frameworks
+  (MODULE-071-076), backup/migration/docs/release (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
 - See `modules/README.md` for the full authoritative MODULE-001..080 queue.

@@ -9,6 +9,7 @@ import httpx
 from fastapi import FastAPI
 
 from xerama.api.routers import (
+    assembly,
     assets,
     audio_production,
     characters,
@@ -29,13 +30,17 @@ from xerama.api.routers import (
 from xerama.config import ModelRoleRegistry, Settings, get_settings
 from xerama.db.base import create_all, make_engine, make_session_factory
 from xerama.pipeline.ai_gateway import AIGateway
+from xerama.providers.fake_assembler import FakeAssembler
 from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_image import FakeImageProvider
 from xerama.providers.fake_lip_sync import FakeLipSyncProvider
+from xerama.providers.fake_media_inspector import FakeMediaInspector
 from xerama.providers.fake_media_qc import FakeMediaQCProvider
 from xerama.providers.fake_video import FakeVideoProvider
 from xerama.providers.fake_voice import FakeVoiceProvider
+from xerama.providers.ffmpeg_assembler import FFmpegAssembler, ffmpeg_is_available
 from xerama.providers.ffmpeg_frame_extractor import FFmpegFrameExtractor
+from xerama.providers.ffprobe_inspector import FFprobeInspector
 from xerama.providers.health import ProviderHealthTracker
 from xerama.providers.local_storage import LocalStorageProvider
 from xerama.providers.openrouter import OpenRouterProvider
@@ -95,6 +100,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if shutil.which(settings.ffmpeg_path)
         else FakeFrameExtractor()
     )
+    # MODULE-046 - same "optional real adapter" principle: a real FFmpeg
+    # assembly pipeline when the binary is available, a deterministic
+    # placeholder otherwise, both behind the same `EpisodeAssembler`
+    # Protocol so no caller code branches on which one is active.
+    app.state.episode_assembler = (
+        FFmpegAssembler(ffmpeg_path=settings.ffmpeg_path)
+        if ffmpeg_is_available(settings.ffmpeg_path)
+        else FakeAssembler()
+    )
+    # MODULE-048 - same principle, one more optional real adapter.
+    app.state.media_inspector = (
+        FFprobeInspector(ffprobe_path=settings.ffprobe_path)
+        if shutil.which(settings.ffprobe_path)
+        else FakeMediaInspector()
+    )
 
     yield
 
@@ -129,6 +149,7 @@ def create_app() -> FastAPI:
     app.include_router(music_cues.router)
     app.include_router(sound_effect_cues.router)
     app.include_router(subtitles.router)
+    app.include_router(assembly.router)
     return app
 
 

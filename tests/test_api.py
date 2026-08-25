@@ -11,7 +11,9 @@ from xerama.pipeline.ai_gateway import AIGateway
 from xerama.providers.fake import FakeLLMProvider
 from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_image import FakeImageProvider
+from xerama.providers.fake_assembler import FakeAssembler
 from xerama.providers.fake_lip_sync import FakeLipSyncProvider
+from xerama.providers.fake_media_inspector import FakeMediaInspector
 from xerama.providers.fake_media_qc import FakeMediaQCProvider
 from xerama.providers.fake_video import FakeVideoProvider
 from xerama.providers.fake_voice import FakeVoiceProvider
@@ -61,6 +63,10 @@ async def client(tmp_path):
     app.state.lip_sync_router = MediaProviderRouter([lip_sync_provider])
     media_qc_provider = FakeMediaQCProvider()
     app.state.media_qc_provider = media_qc_provider
+    episode_assembler = FakeAssembler()
+    app.state.episode_assembler = episode_assembler
+    media_inspector = FakeMediaInspector()
+    app.state.media_inspector = media_inspector
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -70,6 +76,8 @@ async def client(tmp_path):
         ac.fake_lip_sync_provider = lip_sync_provider
         ac.fake_video_provider = video_provider
         ac.fake_media_qc_provider = media_qc_provider
+        ac.fake_episode_assembler = episode_assembler
+        ac.fake_media_inspector = media_inspector
         yield ac
 
     await engine.dispose()
@@ -1007,3 +1015,92 @@ async def test_job_list_failed(client: httpx.AsyncClient) -> None:
     empty = await client.get("/jobs/failed", params={"project_id": project_id})
     assert empty.status_code == 200
     assert empty.json() == []
+
+
+@pytest.mark.asyncio
+async def test_episode_render_full_flow(client: httpx.AsyncClient) -> None:
+    """MODULE-046/047 - render an episode from an approved video take,
+    approve the render, list versions, and check staleness end to end."""
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    production_id = (
+        await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/video-production")
+    ).json()["id"]
+    client.fake_video_provider.queue(b"generated take bytes")
+    take = (await client.post(f"/video-productions/{production_id}/takes/generate")).json()
+    await client.post(f"/video-productions/{production_id}/takes/{take['id']}/accept")
+
+    rendered = await client.post(f"/episodes/{episode1_id}/render")
+    assert rendered.status_code == 200, rendered.text
+    render_asset = rendered.json()
+    assert render_asset["type"] == "video"
+    assert render_asset["take_number"] == 1
+
+    renders = await client.get(f"/episodes/{episode1_id}/renders")
+    assert len(renders.json()) == 1
+    render_id = renders.json()[0]["id"]
+    assert renders.json()[0]["version"] == 1
+    assert renders.json()[0]["status"] == "draft"
+
+    no_current = await client.get(f"/episodes/{episode1_id}/renders/current")
+    assert no_current.status_code == 404
+
+    approved = await client.post(f"/episode-renders/{render_id}/approve")
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+
+    current = await client.get(f"/episodes/{episode1_id}/renders/current")
+    assert current.status_code == 200
+    assert current.json()["id"] == render_id
+
+    staleness = await client.get(f"/episode-renders/{render_id}/staleness")
+    assert staleness.status_code == 200
+    assert staleness.json()["stale"] is False
+
+
+@pytest.mark.asyncio
+async def test_episode_render_blocked_when_shot_missing_approved_take(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    blocked = await client.post(f"/episodes/{episode1_id}/render")
+    assert blocked.status_code == 409, blocked.text
+
+
+@pytest.mark.asyncio
+async def test_episode_export_validates_and_returns_report(client: httpx.AsyncClient) -> None:
+    """MODULE-048 - export renders at the default vertical profile and
+    returns a validation report alongside the render/asset."""
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    production_id = (
+        await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/video-production")
+    ).json()["id"]
+    client.fake_video_provider.queue(b"generated take bytes")
+    take = (await client.post(f"/video-productions/{production_id}/takes/generate")).json()
+    await client.post(f"/video-productions/{production_id}/takes/{take['id']}/accept")
+
+    exported = await client.post(f"/episodes/{episode1_id}/export")
+    assert exported.status_code == 200, exported.text
+    body = exported.json()
+    assert body["asset"]["type"] == "video"
+    assert body["render"]["version"] == 1
+    assert body["validation"]["gate"] == "vertical_export"
+    assert body["validation"]["status"] in ("pass", "warn", "block")
