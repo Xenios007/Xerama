@@ -1,5 +1,13 @@
 # Xerama Development Roadmap
 
+> **Superseded.** This is the original, coarse-grained (XER-001..010 plus
+> four "planned" phases) planning document, kept for historical context
+> only. It predates and is superseded by `modules/README.md`'s
+> authoritative MODULE-001..080 queue, and nearly everything this file
+> lists as "planned" is now implemented - see
+> `docs/IMPLEMENTATION_STATUS.md` for what is actually built, and
+> `README.md` for the current setup/run/test entry points.
+
 ## Phase 1 — Story Intelligence
 
 ### XER-001 — Core Architecture & OpenRouter Model Gateway

@@ -4,6 +4,27 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-079 - Documentation/Developer Experience)
+
+- `README.md` substantially rewritten - it had gone stale (a "planned"
+  Media Engine that's fully built, a Development Roadmap describing
+  implemented work as future phases, a superseded XER-001..010
+  milestone list contradicting the authoritative MODULE-001..080 queue,
+  and a flat "early research stage" status). Now: an accurate Core
+  Systems section, a verified Quickstart, a Testing section, a
+  Documentation index of every doc, and a Status section that defers to
+  `docs/IMPLEMENTATION_STATUS.md` instead of asserting a state that
+  would go stale.
+- Fixed a real stale/contradictory instruction: `modules/README.md`
+  claimed the legacy `01_*.md`-`14_*.md` briefs were "retained" - they
+  were deliberately deleted in a prior commit; corrected.
+- `docs/ROADMAP.md` marked superseded at its own top.
+- Verified for real, not assumed: re-ran `scripts/smoke_test.sh` and the
+  frontend test suite to confirm the Quickstart commands actually work;
+  every doc path referenced in the new content checked to exist.
+- No application/test changes; full suite unaffected (742 passed + 2
+  skipped).
+
 ### Added (MODULE-078 - Migration Strategy)
 
 - Portability audit (clean): no SQLite-dialect imports/raw SQL beyond

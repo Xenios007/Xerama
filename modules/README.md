@@ -3,7 +3,7 @@
 _Last architecture freeze: 2026-08-25._
 
 ## Authority
-This file is the authoritative continuous implementation queue for Claude Code/Codex. The older numbered files `01_*.md` through `14_*.md` are **legacy planning briefs** retained for research/history; they do not define completion order anymore. MODULE-001..080 supersede them.
+This file is the authoritative continuous implementation queue for Claude Code/Codex. The older numbered files `01_*.md` through `14_*.md` were superseding legacy planning briefs; they were removed from the repository (see git history: "docs: remove duplicate legacy module briefs") once MODULE-001..080 fully superseded them, so history/research on that phase lives in `git log` rather than in the working tree. Similarly, `docs/ROADMAP.md` predates this queue and is marked superseded at its own top rather than kept current - `docs/IMPLEMENTATION_STATUS.md` is the live source of truth for what is actually built.
 
 ## Execution rule
 Start at the first module whose acceptance criteria are not fully implemented and verified. `AUDIT/EXTEND` means substantial code may already exist: inspect and reuse it, fill gaps, test, update status, commit and push. `BUILD` means the capability was missing or incomplete at architecture freeze. Do not reimplement working functionality merely to match filenames.

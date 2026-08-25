@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-078 (Migration Strategy)._
+_Last updated: 2026-08-25 - MODULE-079 (Documentation/Developer Experience)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -2459,6 +2459,54 @@ justified piece of tooling.
   audit checked is satisfied structurally already; 53 new tests; full
   suite green (742 passed + 2 skipped, up from 689 + 2).
 
+### MODULE-079 - Documentation / Developer Experience
+
+- **`README.md` substantially rewritten** - it had gone badly stale
+  (predated most of this session's work, and some of it much older):
+  "Media Engine — *planned* provider-independent layer" when it's fully
+  implemented; a "Development Roadmap" describing Phases 2-5 as future
+  work when they're all built; a "First Milestones" list (`XER-001`
+  .. `XER-010`) that was a coarse, superseded early decomposition,
+  contradicting the actual authoritative `modules/README.md` MODULE-001
+  ..080 queue; and `## Status` flatly stating "Early architecture and
+  research stage." Replaced with: a `Core Systems` section that states
+  what's *actually* implemented and explains the "contract + fake now,
+  real adapter later" pattern every provider follows; a `Quickstart`
+  (backend + frontend, copied from - and verified against - the same
+  commands `docs/DEPLOYMENT.md`/`scripts/smoke_test.sh` already prove
+  work); a `Testing` section pointing to `docs/TESTING.md`; a
+  `Documentation` index table naming every doc in `docs/` and what it
+  covers; and a `Status` section that defers to
+  `docs/IMPLEMENTATION_STATUS.md` as the live source of truth rather
+  than asserting a specific completion state that would itself go stale
+  the next time a module lands.
+- **A real stale-and-contradictory instruction found and fixed**:
+  `modules/README.md`'s own "Authority" section claimed the legacy
+  `01_*.md`-`14_*.md` planning briefs were "retained for research/
+  history" - they were not; `git log` shows they were deliberately
+  deleted in a prior commit ("docs: remove duplicate legacy module
+  briefs") once MODULE-001..080 superseded them. Fixed to state that
+  accurately (history lives in `git log`, not the working tree).
+- **`docs/ROADMAP.md` marked superseded** at its own top (matching the
+  precedent already used for other historical docs) rather than left to
+  silently contradict the current, much more granular MODULE-001..080
+  queue - it described nearly everything MODULE-021-065 built as merely
+  "planned."
+- **Verification done literally, not just described**: re-ran
+  `scripts/smoke_test.sh` (a genuinely clean venv + install + migrate +
+  boot, MODULE-069) to confirm the exact commands now in `README.md`'s
+  Quickstart still work, and re-ran the frontend test suite (27/27) to
+  confirm the frontend Quickstart is accurate too - "follow setup docs
+  from a clean checkout" done for real, not assumed from memory.
+  Every doc path referenced in the new `README.md`/`docs/DEPLOYMENT.md`/
+  `docs/TESTING.md` content was checked to actually exist ("validate
+  internal links where practical" - this codebase uses backtick-quoted
+  paths rather than markdown hyperlinks throughout, so link validation
+  means confirming each referenced path resolves to a real file, which
+  it does).
+- No application/test changes - this module is documentation; full
+  suite unaffected (742 passed + 2 skipped).
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2493,7 +2541,7 @@ justified piece of tooling.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Documentation/developer-experience, release operations (MODULE-079-080).
+- Release operations (MODULE-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
 - See `modules/README.md` for the full authoritative MODULE-001..080 queue.
