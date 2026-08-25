@@ -250,6 +250,17 @@ class CanonChangeType(str, Enum):
     PROMISE_PAID_OFF = "promise_paid_off"
 
 
+class ShotClass(str, Enum):
+    """See MODULE-073 - the curated media-eval-dataset categories a shot
+    generation gets benchmarked under."""
+
+    IDENTITY = "identity"
+    DIALOGUE = "dialogue"
+    MOTION = "motion"
+    ESTABLISHING = "establishing"
+    MULTI_CHARACTER = "multi_character"
+
+
 class ProjectRole(str, Enum):
     """See MODULE-067. Ranked OWNER > EDITOR > VIEWER - authorization
     checks a caller's role against a minimum required role, never an

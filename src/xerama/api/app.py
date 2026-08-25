@@ -24,6 +24,7 @@ from xerama.api.routers import (
     health,
     inspect,
     jobs,
+    media_eval,
     music_cues,
     optimization,
     projects,
@@ -192,6 +193,7 @@ def create_app() -> FastAPI:
     app.include_router(optimization.router)
     app.include_router(feedback.router)
     app.include_router(eval.router)
+    app.include_router(media_eval.router)
     return app
 
 

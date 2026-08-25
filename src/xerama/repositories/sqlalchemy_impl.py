@@ -21,7 +21,15 @@ from xerama.domain.character import (
     RelationshipState,
     WardrobeVariant,
 )
-from xerama.domain.enums import AudioMode, JobStage, JobStatus, MediaQCDimension, ProjectRole, QCStatus
+from xerama.domain.enums import (
+    AudioMode,
+    JobStage,
+    JobStatus,
+    MediaQCDimension,
+    ProjectRole,
+    QCStatus,
+    ShotClass,
+)
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan, Scene as SceneDTO, Shot as ShotDTO
@@ -33,6 +41,7 @@ from xerama.domain.episode_render import EpisodeRender
 from xerama.domain.enums import ModelRole
 from xerama.domain.eval import EvalRunResult
 from xerama.domain.feedback import HumanFeedback
+from xerama.domain.media_eval import MediaEvalRunResult, MediaQCDimensionResult
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
 from xerama.domain.rights import RightsMetadata
@@ -2496,3 +2505,86 @@ class SQLAlchemyEvalRunRepository:
         row.human_preference = preference
         await self._session.flush()
         return _eval_run_result(row)
+
+
+def _media_eval_run_result(row: m.MediaEvalRunResult) -> MediaEvalRunResult:
+    return MediaEvalRunResult(
+        id=row.id,
+        case_id=row.case_id,
+        shot_class=ShotClass(row.shot_class),
+        asset_type=AssetType(row.asset_type),
+        dataset_version=row.dataset_version,
+        provider=row.provider,
+        generation_succeeded=row.generation_succeeded,
+        attempts=row.attempts,
+        latency_ms=row.latency_ms,
+        estimated_cost_usd=row.estimated_cost_usd,
+        qc_results=[MediaQCDimensionResult(**r) for r in row.qc_results],
+        accepted=row.accepted,
+        asset_id=row.asset_id,
+        error=row.error,
+        human_preference=row.human_preference,
+        created_at=row.created_at,
+    )
+
+
+class SQLAlchemyMediaEvalRunRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        case_id: str,
+        shot_class: str,
+        asset_type: str,
+        dataset_version: str,
+        provider: str,
+        generation_succeeded: bool,
+        attempts: int = 0,
+        latency_ms: float | None = None,
+        estimated_cost_usd: float | None = None,
+        qc_results: list[dict] | None = None,
+        accepted: bool = False,
+        asset_id: str | None = None,
+        error: str = "",
+    ) -> MediaEvalRunResult:
+        row = m.MediaEvalRunResult(
+            case_id=case_id,
+            shot_class=shot_class,
+            asset_type=asset_type,
+            dataset_version=dataset_version,
+            provider=provider,
+            generation_succeeded=generation_succeeded,
+            attempts=attempts,
+            latency_ms=latency_ms,
+            estimated_cost_usd=estimated_cost_usd,
+            qc_results=qc_results or [],
+            accepted=accepted,
+            asset_id=asset_id,
+            error=error,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _media_eval_run_result(row)
+
+    async def list_by_shot_class(self, shot_class: str) -> list[MediaEvalRunResult]:
+        result = await self._session.execute(
+            select(m.MediaEvalRunResult)
+            .where(m.MediaEvalRunResult.shot_class == shot_class)
+            .order_by(m.MediaEvalRunResult.created_at)
+        )
+        return [_media_eval_run_result(row) for row in result.scalars()]
+
+    async def list_all(self) -> list[MediaEvalRunResult]:
+        result = await self._session.execute(
+            select(m.MediaEvalRunResult).order_by(m.MediaEvalRunResult.created_at)
+        )
+        return [_media_eval_run_result(row) for row in result.scalars()]
+
+    async def set_human_preference(self, run_id: str, preference: str) -> MediaEvalRunResult:
+        row = await self._session.get(m.MediaEvalRunResult, run_id)
+        if row is None:
+            raise ValueError(f"media eval run {run_id} not found")
+        row.human_preference = preference
+        await self._session.flush()
+        return _media_eval_run_result(row)

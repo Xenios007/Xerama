@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-072 (AI Evaluation Framework)._
+_Last updated: 2026-08-25 - MODULE-073 (Media Evaluation Framework)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -2188,6 +2188,58 @@ run surfaced.
   fake outputs" is satisfied literally: every eval test uses
   `FakeLLMProvider`, never a real network call.
 
+### MODULE-073 - Media Evaluation Framework
+
+Media analog of MODULE-072, benchmarking image/video *providers*
+instead of LLM roles - "provider routing can be informed by repeatable
+media benchmarks."
+
+- **`domain/enums.py::ShotClass`** (new) - the five curated shot
+  categories the module names: identity, dialogue, motion, establishing,
+  multi-character. **`eval/media_datasets.py`** - `SHOT_CLASS_QC_DIMENSIONS`
+  maps each class to the `MediaQCDimension`s (MODULE-044) that matter for
+  it (e.g. establishing needs only `COMPOSITION`, no character reference;
+  identity/multi-character need `IDENTITY`); `IMAGE_CASES` (4, one per
+  class covering image generation) + `VIDEO_CASES` (2, motion-focused,
+  since motion is video's defining trait over a still image) - every
+  `ShotClass` is covered by at least one case across the two sets.
+- **`pipeline/media_eval_harness.py`** - `MediaEvalHarness.run_case` runs
+  a case through the *real* `MediaProviderRouter` for image or video,
+  persists the result through the real `AssetService` (ADR-020 - same
+  durable, provenance-tracked asset a production generation would leave,
+  tagged with a fixed non-FK-constrained `project_id="eval-bench"` so
+  benchmark assets are inspectable/cleanable as a group without a real
+  Project row), then scores it on every QC dimension the case's shot
+  class asks for through the real `MediaQCProvider` contract (MODULE-044)
+  - never a second scoring system. A QC-provider failure is caught and
+  recorded as a `status="error"` dimension rather than crashing the
+  whole run (found while writing
+  `test_harness_run_case_survives_a_qc_provider_failure` - the fake
+  provider's queued-`ProviderError` path was uncaught in the first cut).
+  "Accepted" = every scored dimension is `PASS` - `WARN`/`BLOCK`/`error`
+  all count as not-accepted, the conservative reading of "accepted-
+  output economics."
+- **`pipeline/media_eval_aggregation.py`** - groups strictly by
+  `(shot_class, provider)`, mirroring MODULE-064/072's cost-per-accepted
+  ratio (ADR-024) but over each provider's self-reported
+  `capabilities.estimated_cost_usd` rather than real billing telemetry -
+  named `estimated_cost_usd` throughout, never conflated with MODULE-049's
+  real `CostRecord` ledger (no media provider in this codebase has a live
+  usage-based cost API yet). Never fabricates a cost-per-accepted number
+  when nothing was accepted (`None`, not a divide-by-zero or a fake 0).
+- **New `media_eval_run_results` table** (migration `885220810535`,
+  append-only) + `POST /media-eval/{asset_type}/run`,
+  `GET /media-eval/benchmark`, `POST /media-eval/runs/{id}/human-preference` -
+  same "live eval opt-in, not project-scoped, still requires an
+  authenticated caller in hosted mode" shape as MODULE-072's `/eval`
+  endpoints (a live run spends real provider credits either way).
+- Acceptance criterion met: verified by 21 new tests (12 pure dataset/
+  aggregation, 7 harness/service/repository against a real DB with
+  `FakeImageProvider`/`FakeMediaQCProvider`, 2 end-to-end API) - full
+  suite green (665 passed, up from 644). "Harness/data-schema tests with
+  fixture outputs" satisfied literally - no real provider call anywhere
+  in the test suite.
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2222,8 +2274,8 @@ run surfaced.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Media eval framework, integration/E2E/failure-simulation testing
-  (MODULE-073-076), backup/migration/docs/release
+- Integration/E2E/failure-simulation testing (MODULE-074-076),
+  backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).

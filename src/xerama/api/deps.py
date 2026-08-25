@@ -31,6 +31,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyEpisodeRepository,
     SQLAlchemyEvalRunRepository,
     SQLAlchemyHumanFeedbackRepository,
+    SQLAlchemyMediaEvalRunRepository,
     SQLAlchemyJobRepository,
     SQLAlchemyMediaQCRepository,
     SQLAlchemyMetricsRepository,
@@ -53,7 +54,9 @@ from xerama.services.audio_production_service import AudioProductionService
 from xerama.services.auth_service import AuthService
 from xerama.services.character_casting_service import CharacterCastingService
 from xerama.pipeline.eval_harness import EvalHarness
+from xerama.pipeline.media_eval_harness import MediaEvalHarness
 from xerama.services.eval_service import EvalService
+from xerama.services.media_eval_service import MediaEvalService
 from xerama.services.analytics_service import (
     AnalyticsIngestionService,
     RetentionAnalyticsService,
@@ -363,6 +366,22 @@ def get_eval_service(
     # gateway's actual provider label, not a guess.
     harness = EvalHarness(gateway=gateway, provider_name="openrouter")
     return EvalService(harness=harness, repo=SQLAlchemyEvalRunRepository(session))
+
+
+def get_media_eval_service(
+    session: AsyncSession = Depends(get_session),
+    storage: LocalStorageProvider = Depends(get_storage_provider),
+    image_router: MediaProviderRouter[ImageProvider] = Depends(get_image_router),
+    video_router: MediaProviderRouter[VideoProvider] = Depends(get_video_router),
+    media_qc_provider: MediaQCProvider = Depends(get_media_qc_provider),
+) -> MediaEvalService:
+    harness = MediaEvalHarness(
+        image_router=image_router,
+        video_router=video_router,
+        media_qc_provider=media_qc_provider,
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+    )
+    return MediaEvalService(harness=harness, repo=SQLAlchemyMediaEvalRunRepository(session))
 
 
 def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthService:

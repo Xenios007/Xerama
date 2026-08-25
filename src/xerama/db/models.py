@@ -696,6 +696,29 @@ class EvalRunResult(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
+class MediaEvalRunResult(Base):
+    """See MODULE-073. Append-only - every benchmark run is its own row."""
+
+    __tablename__ = "media_eval_run_results"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    case_id: Mapped[str] = mapped_column(String(128), index=True)
+    shot_class: Mapped[str] = mapped_column(String(32), index=True)
+    asset_type: Mapped[str] = mapped_column(String(16))
+    dataset_version: Mapped[str] = mapped_column(String(32), index=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    generation_succeeded: Mapped[bool] = mapped_column(Boolean)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    estimated_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    qc_results: Mapped[list] = mapped_column(JSON, default=list)
+    accepted: Mapped[bool] = mapped_column(Boolean, default=False)
+    asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+    human_preference: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 class User(Base):
     """See MODULE-067. Only exists/matters in "hosted" mode - local
     single-user mode never creates a row here."""

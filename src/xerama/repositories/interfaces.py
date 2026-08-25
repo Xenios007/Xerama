@@ -23,6 +23,7 @@ from xerama.domain.cost import CostRecord
 from xerama.domain.episode_render import EpisodeRender
 from xerama.domain.eval import EvalRunResult
 from xerama.domain.feedback import HumanFeedback
+from xerama.domain.media_eval import MediaEvalRunResult
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
 from xerama.domain.quality import QCResult
@@ -766,6 +767,33 @@ class EvalRunRepository(Protocol):
     async def list_all(self) -> list[EvalRunResult]: ...
 
     async def set_human_preference(self, run_id: str, preference: str) -> EvalRunResult: ...
+
+
+class MediaEvalRunRepository(Protocol):
+    """See MODULE-073. Append-only - every benchmark run is its own row."""
+
+    async def create(
+        self,
+        case_id: str,
+        shot_class: str,
+        asset_type: str,
+        dataset_version: str,
+        provider: str,
+        generation_succeeded: bool,
+        attempts: int = 0,
+        latency_ms: float | None = None,
+        estimated_cost_usd: float | None = None,
+        qc_results: list[dict] | None = None,
+        accepted: bool = False,
+        asset_id: str | None = None,
+        error: str = "",
+    ) -> MediaEvalRunResult: ...
+
+    async def list_by_shot_class(self, shot_class: str) -> list[MediaEvalRunResult]: ...
+
+    async def list_all(self) -> list[MediaEvalRunResult]: ...
+
+    async def set_human_preference(self, run_id: str, preference: str) -> MediaEvalRunResult: ...
 
 
 class UserRepository(Protocol):

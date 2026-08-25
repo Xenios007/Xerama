@@ -4,6 +4,26 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-073 - Media Evaluation Framework)
+
+- `domain/enums.py::ShotClass` (identity/dialogue/motion/establishing/
+  multi-character) + `eval/media_datasets.py` - curated image (4) and
+  video (2) benchmark cases, every shot class covered, mapped to the
+  `MediaQCDimension`s that matter for it.
+- `pipeline/media_eval_harness.py` - runs a case through the real
+  `MediaProviderRouter`, persists the result via the real `AssetService`,
+  scores it via the real `MediaQCProvider` contract (MODULE-044); a QC
+  failure is caught and recorded rather than crashing the run.
+- `pipeline/media_eval_aggregation.py` - groups by `(shot_class,
+  provider)`, ADR-024's cost-per-accepted ratio over each provider's
+  self-reported `estimated_cost_usd` (never conflated with real billing
+  telemetry).
+- New `media_eval_run_results` table + `POST /media-eval/{asset_type}/run`,
+  `GET /media-eval/benchmark`, `POST /media-eval/runs/{id}/human-preference` -
+  "live eval opt-in," not project-scoped.
+- 21 new tests, no real provider call anywhere in the eval test suite;
+  full suite green (665 passed, up from 644).
+
 ### Added (MODULE-072 - AI Evaluation Framework)
 
 - `eval/datasets.py` - versioned dataset (`v1`) covering the LLM roles
