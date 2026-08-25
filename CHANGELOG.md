@@ -4,6 +4,23 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-078 - Migration Strategy)
+
+- Portability audit (clean): no SQLite-dialect imports/raw SQL beyond
+  the portable readiness-check query; every migration uses generic
+  `sa.*` DDL.
+- `tests/test_repository_contracts.py` - reflects over every repository
+  Protocol and asserts its `SQLAlchemy*` implementation exists,
+  implements every method, with matching parameter names - catches a
+  class of bug (typo'd/renamed argument) Python's structural typing
+  never checks at import time. Ran clean against all 26 pairs.
+- `docs/DEPLOYMENT.md` section 7.1 - concrete data export/import and
+  asset-key-mapping guidance: app-generated UUIDs need no ID remapping;
+  `storage_path` already IS the object key an S3/GCS adapter would use,
+  so no key-mapping table is needed for asset migration.
+- 53 new tests; full suite green (742 passed + 2 skipped, up from 689 +
+  2).
+
 ### Added (MODULE-077 - Backup/Recovery)
 
 - `python -m xerama.backup backup|verify|restore` - a consistent SQLite

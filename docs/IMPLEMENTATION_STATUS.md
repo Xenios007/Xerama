@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-077 (Backup/Recovery)._
+_Last updated: 2026-08-25 - MODULE-078 (Migration Strategy)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -2415,6 +2415,50 @@ nothing else covered:
   directory, not just the underlying functions). 10 new tests; full
   suite green (689 passed + 2 skipped, up from 679 + 2).
 
+### MODULE-078 - Migration Strategy
+
+An audit (the interface/Protocol portability discipline ADR-021/022
+already established was the real work) plus one genuinely new,
+justified piece of tooling.
+
+- **Portability audit, clean** - explicit `grep` across `src/xerama`
+  found zero SQLite-dialect imports/`PRAGMA`/raw SQL beyond the one
+  portable `SELECT 1` readiness check (`health.py`); every Alembic
+  migration's `upgrade()` uses only generic `sa.*` operations (no
+  SQLite-specific DDL); every repository is written against
+  `repositories/interfaces.py` Protocols, never raw SQL. "Avoid
+  SQLite-only semantics in application logic" was already true, not a
+  gap this module needed to close.
+- **`tests/test_repository_contracts.py`** (new - the "add ... tooling
+  only when justified" bar met: catches a real, previously-unguarded
+  class of bug) - reflects over every `*Repository(Protocol)` in
+  `interfaces.py` (discovered automatically via `_is_protocol`, not
+  hand-listed - a new repository added later is covered with zero extra
+  test code) and asserts its `SQLAlchemy{Name}` implementation exists,
+  implements every declared method, and each method's parameter *names*
+  match the Protocol's - Python's structural typing never checks this at
+  import time, so a typo'd/renamed/missing argument would otherwise only
+  surface as a confusing `TypeError` the first time a caller happened to
+  exercise that exact method. Ran clean against all 26 existing
+  repository pairs (no drift found) - this is a regression guard for
+  future changes, not evidence of a bug fixed today.
+- **`docs/DEPLOYMENT.md` section 7.1 "Data export/import"** (new) -
+  "document data export/import and asset-key mapping" done concretely:
+  every ID in this schema is an application-generated UUID (never a
+  DB-native auto-increment), so a `pg_dump`/`pg_restore`-style DB copy
+  needs no ID-remapping step; `Asset.storage_path` is already a flat,
+  content-hash-prefixed relative path (ADR-020/022, enforced by
+  `LocalStorageProvider._safe_path`) that doubles as the object key an
+  S3/GCS adapter would use verbatim - migrating assets needs **no
+  key-mapping table**, just "upload each file under
+  `ASSET_STORAGE_PATH` using its existing relative path as the object
+  key," and MODULE-077's backup manifest already enumerates exactly
+  that file list (plus hashes to verify the upload against).
+- Acceptance criterion met: "hosted scaling does not require rewriting
+  story/production services" - every repository/provider Protocol this
+  audit checked is satisfied structurally already; 53 new tests; full
+  suite green (742 passed + 2 skipped, up from 689 + 2).
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2449,7 +2493,7 @@ nothing else covered:
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Migration strategy/docs/release-operations (MODULE-078-080).
+- Documentation/developer-experience, release operations (MODULE-079-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
 - See `modules/README.md` for the full authoritative MODULE-001..080 queue.

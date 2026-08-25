@@ -167,6 +167,41 @@ split every module in this codebase already follows:
   the roadmap for MODULE-069's own "document ... the hosted path"
   requirement, not a claim that hosted persistence works today.
 
+### 7.1 Data export/import (MODULE-078)
+
+Migrating an existing local Trial-01 project into a hosted deployment
+is two independent transfers - the schema-level swap above only
+prepares the *target* to accept data, it doesn't move any:
+
+- **Database**: `pg_dump`/`pg_restore` (or an ETL tool of choice) against
+  the *same schema* the Alembic chain already produces - run
+  `alembic upgrade head` against the empty target Postgres DB first
+  (creates every table with the right types/indexes), then copy row
+  data table-by-table. Every ID in this schema is already an
+  application-generated UUID hex string (`db/models.py::_id()`), never a
+  DB-native auto-increment integer - so row identity is stable across
+  the copy with no ID-remapping step, and foreign-key-shaped columns
+  (`project_id`, `episode_id`, etc. - see `repositories/sqlalchemy_impl.py`
+  for which are real FKs vs. plain indexed strings) never need
+  rewriting either.
+- **Asset storage / "asset-key mapping"**: `Asset.storage_path` (e.g.
+  `"a1/a1b2c3....png"`, content-hash-prefixed - ADR-020/022) is already
+  the *object key* an S3/GCS adapter would use verbatim - `storage_path`
+  was deliberately designed as a flat relative path, never a local
+  filesystem assumption (no drive letters, no `..`, enforced by
+  `LocalStorageProvider._safe_path`), so migrating assets is "upload
+  every file under `ASSET_STORAGE_PATH` to the bucket using its existing
+  relative path as the object key" with **no key-mapping table needed**
+  - the DB rows' `storage_path` values stay valid unmodified once the
+  bucket is populated. `python -m xerama.backup`'s manifest.json
+  (MODULE-077) already enumerates every relative path + hash, so it
+  doubles as the file list to upload; verify post-upload by comparing
+  each object's hash against that same manifest.
+- **Order**: restore/import the database first, then upload assets - a
+  DB row referencing a `storage_path` that isn't in the bucket yet is a
+  visible, debuggable 404 on asset download; an asset in the bucket with
+  no DB row is invisible and harmless. Never the other order.
+
 ## 8. Operational limits & hardening (MODULE-070)
 
 "Remove prototype-only failure modes before calling the system
