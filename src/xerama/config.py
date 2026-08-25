@@ -71,6 +71,10 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite+aiosqlite:///./xerama.db"
     asset_storage_path: str = "./storage"
+    # MODULE-066 - ceiling on a single manual `/assets/upload` (see
+    # pipeline/upload_validation.py). Provider-generated assets never go
+    # through this check - only client-supplied bytes are untrusted.
+    max_upload_size_bytes: int = 200 * 1024 * 1024
     # Binary name/path for last-frame extraction (Module 08/MODULE-032) and
     # episode assembly (MODULE-046) - override if ffmpeg isn't on PATH
     # under this exact name.

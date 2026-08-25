@@ -1363,3 +1363,67 @@ async def test_human_feedback_endpoints(client: httpx.AsyncClient) -> None:
 
     by_project = await client.get(f"/projects/{project_id}/feedback")
     assert len(by_project.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_asset_upload_rejects_oversized_file(client: httpx.AsyncClient, monkeypatch) -> None:
+    from xerama.config import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("MAX_UPLOAD_SIZE_BYTES", "10")
+    get_settings.cache_clear()
+    try:
+        created = await client.post("/projects", json={"name": "Trial 01"})
+        project_id = created.json()["id"]
+
+        upload = await client.post(
+            "/assets/upload",
+            params={"project_id": project_id, "asset_type": "image"},
+            files={"file": ("frame.png", b"way more than ten bytes of data", "image/png")},
+        )
+        assert upload.status_code == 413
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_asset_upload_rejects_content_type_mismatch(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+
+    upload = await client.post(
+        "/assets/upload",
+        params={"project_id": project_id, "asset_type": "image"},
+        files={"file": ("clip.mp4", b"fake mp4 bytes", "video/mp4")},
+    )
+    assert upload.status_code == 415
+
+
+@pytest.mark.asyncio
+async def test_asset_upload_rejects_html_content_type_regardless_of_asset_type(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+
+    upload = await client.post(
+        "/assets/upload",
+        params={"project_id": project_id, "asset_type": "other"},
+        files={"file": ("evil.html", b"<script>alert(1)</script>", "text/html")},
+    )
+    assert upload.status_code == 415
+
+
+@pytest.mark.asyncio
+async def test_asset_upload_sanitizes_traversal_attempt_in_filename(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+
+    upload = await client.post(
+        "/assets/upload",
+        params={"project_id": project_id, "asset_type": "image"},
+        files={"file": ("frame.png/../../evil", b"fake png bytes", "image/png")},
+    )
+    assert upload.status_code == 200, upload.text
+
+    downloaded = await client.get(f"/assets/{upload.json()['id']}/download")
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"fake png bytes"

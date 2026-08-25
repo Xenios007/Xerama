@@ -4,6 +4,23 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-066 - Security)
+
+- Threat-model pass over API/uploads/asset-serving/FFmpeg subprocesses/
+  secrets/logs; path traversal, subprocess construction, and secret
+  handling were already sound (verified with new regression tests, not
+  changed).
+- Fixed the one real gap: `POST /assets/upload` now validates
+  content-type against a per-`AssetType` allow-list plus a fixed
+  dangerous-content-type denylist (closes a stored-XSS vector via
+  `GET /assets/{id}/download` echoing an attacker-declared
+  `Content-Type`), enforces `Settings.max_upload_size_bytes` (413), and
+  sanitizes the filename extension before it reaches the
+  content-addressed storage path (415/200 as appropriate).
+- `pip-audit` added as a dev dependency for manual dependency
+  vulnerability scanning (no CI yet - MODULE-069/070).
+- 23 new tests; full suite green (564 passed, up from 541).
+
 ### Added (MODULE-061-065 - Analytics Ingestion, Retention Analytics, Story
 Performance Learning, Provider/Model Optimization, Human Feedback)
 

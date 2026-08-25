@@ -4,8 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from xerama.api.deps import get_asset_service, get_media_qc_service
+from xerama.config import get_settings
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetStatus, AssetType
 from xerama.domain.media_qc import MediaQCAttempt
+from xerama.pipeline.upload_validation import (
+    UploadTooLargeError,
+    UploadValidationError,
+    sanitize_extension,
+    validate_upload,
+)
 from xerama.services.asset_service import AssetService
 from xerama.services.media_qc_service import MediaQCService
 
@@ -108,7 +115,15 @@ async def upload_asset(
     """Manual upload - a first-class fallback so the pipeline is never
     blocked purely by provider availability (see Module 06)."""
     data = await file.read()
-    ext = "." + file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else ""
+    try:
+        validate_upload(
+            asset_type, file.content_type or "", len(data), get_settings().max_upload_size_bytes
+        )
+    except UploadTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+    ext = sanitize_extension(file.filename)
     ownership = AssetOwnership(
         project_id=project_id,
         series_id=series_id,

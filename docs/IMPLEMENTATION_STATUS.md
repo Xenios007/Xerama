@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-061-065 (Analytics Ingestion, Retention Analytics, Story Performance Learning, Provider Optimization, Human Feedback)._
+_Last updated: 2026-08-25 - MODULE-066 (Security)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1750,6 +1750,75 @@ MODULE-046-048.
   6, plus 4 new `test_api.py` cases) - full suite green (541 passed, up
   from 510).
 
+### MODULE-066 - Security
+
+A threat-model pass over the surfaces MODULE-066 names (API, uploads,
+asset serving, FFmpeg subprocesses, provider secrets, logs) found most
+already structurally sound from earlier modules and closed the two real
+gaps found:
+
+- **Path traversal (uploads/storage)** - already fully covered:
+  `LocalStorageProvider._safe_path` (ADR-022) resolves every relative
+  path against the storage root and rejects anything that would escape
+  it, with existing regression tests (`test_local_storage.py`) for `..`
+  and absolute-path attempts. No change needed here; MODULE-066 only
+  adds a defense-in-depth layer at the ingest boundary (below).
+- **FFmpeg/ffprobe subprocess construction** - already fully sound:
+  every call site (`ffmpeg_assembler.py`, `ffmpeg_frame_extractor.py`,
+  `ffprobe_inspector.py`) uses `asyncio.create_subprocess_exec` with an
+  explicit argv list and fixed, internally-generated temp filenames -
+  never a shell string, never a caller-supplied filename embedded in a
+  path. Verified with a new regression test
+  (`test_no_shell_invoked_subprocess_anywhere_in_the_codebase`) that
+  scans the whole `src/xerama` tree for `shell=True`/`os.system`/
+  `subprocess.call`/`.run`/`.Popen` and fails if any real vulnerability
+  surface is introduced later.
+- **Provider secrets in logs** - already fully sound (ADR-010):
+  `Settings.openrouter_api_key` is a Pydantic `SecretStr` (never appears
+  in `repr()`/`str()`/`model_dump()`), `OpenRouterProvider._headers`
+  carries an explicit "never log this dict" comment, and
+  `JsonLogFormatter` (MODULE-050) never logs prompt/payload content by
+  design - only a fixed structured field set. Verified with 3 new
+  regression tests covering `Settings` repr/dict-dump masking and a
+  `JsonLogFormatter` round-trip.
+- **Manual upload MIME/size validation (the one real gap)** - `POST
+  /assets/upload` previously ingested a client-declared `content_type`
+  and filename extension with no validation at all: an attacker could
+  upload arbitrary bytes claiming a dangerous `content_type` (e.g.
+  `text/html`, `image/svg+xml`) as any `AssetType`, which
+  `GET /assets/{id}/download` would then echo back verbatim as the
+  response `Content-Type` - a stored-XSS vector against anyone who later
+  downloaded that "asset" in a browser. Fixed with a new pure
+  `pipeline/upload_validation.py`:
+  - `validate_upload(asset_type, content_type, size_bytes, max_size_bytes)`
+    rejects a fixed denylist of browser-executable content types
+    (`text/html`, `image/svg+xml`, `application/javascript`, ...)
+    regardless of declared `AssetType`, and additionally enforces a
+    per-`AssetType` allow-list (`image/*` for `AssetType.IMAGE`, etc.)
+    so a caller can't smuggle a video payload in as a declared "image".
+    An empty `content_type` (client sent none) is allowed through
+    unchanged, since `download_asset` already falls back to
+    `application/octet-stream` in that case - no new risk.
+  - A new `Settings.max_upload_size_bytes` (default 200MB) is enforced
+    against the actual read byte count, returning `413` over `415` for
+    content-type violations - distinct, correctly-mapped HTTP statuses.
+  - `sanitize_extension(filename)` replaces the previous raw
+    `filename.rsplit(".", 1)[-1]` splice into the content-addressed
+    storage path with a strict alnum-only, length-bounded extension
+    (or none) - closes a defense-in-depth gap even though
+    `LocalStorageProvider` would already reject an actual traversal
+    attempt built from a malicious extension.
+- **Dependency scanning** - `pip-audit` added as a dev dependency
+  ("where practical" - no CI pipeline exists yet to automate this;
+  MODULE-069/070 own deployment/CI). Run manually via
+  `pip-audit -r <(pip freeze)`; current dependency set has zero known
+  vulnerabilities as of 2026-08-25.
+- Acceptance criterion met: "known high-risk surfaces have explicit
+  controls and tests" - verified by 23 new tests (15
+  `test_upload_validation.py`, 4 `test_security_regressions.py`, 4 new
+  `test_api.py` upload-rejection cases) - full suite green (564 passed,
+  up from 541).
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1775,7 +1844,7 @@ MODULE-046-048.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Security/deployment/hardening (MODULE-066-070), testing/eval
+- Authorization/rate-limiting/deployment/hardening (MODULE-067-070), testing/eval
   frameworks (MODULE-071-076), backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
