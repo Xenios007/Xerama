@@ -1,0 +1,40 @@
+.xr-story__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.xr-story__episode-list {
+  padding-left: 1.25rem;
+}
+
+.xr-story__qc-row {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.xr-qc {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+}
+
+.xr-qc--pass {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.xr-qc--warn {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.xr-qc--block {
+  background: var(--xr-color-danger-bg, #fef2f2);
+  color: var(--xr-color-danger, #dc2626);
+}

@@ -2,6 +2,7 @@ import { createBrowserRouter, type RouteObject } from "react-router-dom";
 import { AppShell } from "./components/layout/AppShell";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
+import { StoryStudioPage } from "./pages/StoryStudioPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 
 // Exported separately from the router itself so tests can build a
@@ -15,8 +16,14 @@ export const routes: RouteObject[] = [
       { path: "projects/:projectId", element: <ProjectDetailPage /> },
       {
         path: "story",
-        element: <PlaceholderPage title="Story Studio" module="MODULE-057" />,
+        element: (
+          <PlaceholderPage
+            title="Story Studio"
+            module="MODULE-057 - open a project's series from the Dashboard to view it"
+          />
+        ),
       },
+      { path: "story/:seriesId", element: <StoryStudioPage /> },
       {
         path: "characters",
         element: <PlaceholderPage title="Character Studio" module="MODULE-058" />,

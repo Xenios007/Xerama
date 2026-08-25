@@ -99,6 +99,17 @@ async def test_concept_repository_marks_accepted_candidate(session) -> None:
     accepted = {row.slot: row.accepted for row in rows}
     assert accepted == {"A": False, "B": True}
 
+    candidates = await concept_repo.list_candidates(project.id)
+    assert len(candidates) == 2
+    accepted_by_slot = {c.slot: c.accepted for c in candidates}
+    assert accepted_by_slot == {"A": False, "B": True}
+    assert candidates[0].candidate.title in ("A title", "B title")
+
+    decisions = await concept_repo.list_judge_decisions(project.id)
+    assert len(decisions) == 1
+    assert decisions[0].decision == "B"
+    assert decisions[0].approved_concept.title == "B title"
+
 
 async def test_series_bible_and_cast_roundtrip(session) -> None:
     project_repo = SQLAlchemyProjectRepository(session)
@@ -250,6 +261,9 @@ async def test_episode_outline_script_shots_and_qc_roundtrip(session) -> None:
     await episode_repo.save_quality_report(
         record.id, QCResult(gate="retention", status=QCStatus.PASS, score=9.0)
     )
+    await episode_repo.save_quality_report(
+        record.id, QCResult(gate="continuity", status=QCStatus.WARN, score=6.0, reasons=["timeline gap"])
+    )
     await episode_repo.save_canon_event(
         record.id,
         CanonEvent(
@@ -260,6 +274,11 @@ async def test_episode_outline_script_shots_and_qc_roundtrip(session) -> None:
         ),
     )
     await session.commit()
+
+    reports = await episode_repo.list_quality_reports(record.id)
+    assert [r.gate for r in reports] == ["retention", "continuity"]
+    assert reports[1].status == QCStatus.WARN
+    assert reports[1].reasons == ["timeline gap"]
 
     episodes = await episode_repo.list_by_series(series.id)
     assert len(episodes) == 1

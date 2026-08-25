@@ -40,8 +40,10 @@ from xerama.domain.style_bible import StyleBible
 from xerama.domain.video_production import ShotVideoProduction
 from xerama.domain.voice import VoiceProfile
 from xerama.repositories.interfaces import (
+    ConceptCandidateRecord as ConceptCandidateRecordDTO,
     EpisodeRecord,
     JobRecord,
+    JudgeDecisionRecord as JudgeDecisionRecordDTO,
     ProjectRecord,
     SeasonPlanRecord,
     SeriesRecord,
@@ -155,6 +157,48 @@ class SQLAlchemyConceptRepository:
             for candidate_row in candidates.scalars():
                 candidate_row.accepted = True
         return row.id
+
+    async def list_candidates(self, project_id: str) -> list[ConceptCandidateRecordDTO]:
+        result = await self._session.execute(
+            select(m.ConceptCandidateRecord)
+            .where(m.ConceptCandidateRecord.project_id == project_id)
+            .order_by(m.ConceptCandidateRecord.created_at)
+        )
+        return [
+            ConceptCandidateRecordDTO(
+                id=row.id,
+                project_id=row.project_id,
+                batch_id=row.batch_id,
+                slot=row.slot,
+                provider=row.provider,
+                model=row.model,
+                candidate=ConceptCandidate.model_validate(row.candidate),
+                accepted=row.accepted,
+                created_at=row.created_at,
+            )
+            for row in result.scalars()
+        ]
+
+    async def list_judge_decisions(self, project_id: str) -> list[JudgeDecisionRecordDTO]:
+        result = await self._session.execute(
+            select(m.JudgeDecisionRecord)
+            .where(m.JudgeDecisionRecord.project_id == project_id)
+            .order_by(m.JudgeDecisionRecord.created_at)
+        )
+        return [
+            JudgeDecisionRecordDTO(
+                id=row.id,
+                project_id=row.project_id,
+                batch_id=row.batch_id,
+                decision=row.decision,
+                provider=row.provider,
+                model=row.model,
+                result=JudgeResult.model_validate(row.result),
+                approved_concept=ConceptCandidate.model_validate(row.approved_concept),
+                created_at=row.created_at,
+            )
+            for row in result.scalars()
+        ]
 
 
 class SQLAlchemySeriesRepository:
@@ -592,6 +636,23 @@ class SQLAlchemyEpisodeRepository:
         )
         self._session.add(row)
         await self._session.flush()
+
+    async def list_quality_reports(self, episode_id: str) -> list[QCResult]:
+        result = await self._session.execute(
+            select(m.QualityReport)
+            .where(m.QualityReport.episode_id == episode_id)
+            .order_by(m.QualityReport.created_at)
+        )
+        return [
+            QCResult(
+                gate=row.gate,
+                status=QCStatus(row.status),
+                score=row.score,
+                reasons=row.reasons,
+                repair_recommendation=row.repair_recommendation,
+            )
+            for row in result.scalars()
+        ]
 
     async def save_canon_event(self, episode_id: str, event: CanonEvent) -> None:
         row = m.EpisodeStateChange(

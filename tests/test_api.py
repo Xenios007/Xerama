@@ -1231,3 +1231,32 @@ async def test_jobs_list_filter_and_duplicate_prevention(client: httpx.AsyncClie
     listed = await client.get("/jobs", params={"project_id": project_id})
     assert listed.status_code == 200
     assert len(listed.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_story_studio_inspection_endpoints(client: httpx.AsyncClient) -> None:
+    """MODULE-057 - concept candidates, judge decisions, quality reports,
+    and canon events are all inspectable after generate-series."""
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    series_id = generated.json()["series_id"]
+    episode1_id = generated.json()["episode1_id"]
+
+    candidates = await client.get(f"/projects/{project_id}/concept-candidates")
+    assert candidates.status_code == 200
+    assert len(candidates.json()) == 2
+
+    decisions = await client.get(f"/projects/{project_id}/judge-decisions")
+    assert decisions.status_code == 200
+    assert len(decisions.json()) == 1
+
+    reports = await client.get(f"/episodes/{episode1_id}/quality-reports")
+    assert reports.status_code == 200
+    assert len(reports.json()) >= 1
+
+    canon = await client.get(f"/series/{series_id}/canon-events")
+    assert canon.status_code == 200

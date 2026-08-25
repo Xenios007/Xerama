@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { QueryState } from "../components/ui/QueryState";
@@ -67,7 +67,10 @@ export function ProjectDetailPage() {
                 <Card title="Series">
                   {status.data.series.map((series) => (
                     <div key={series.id} style={{ marginBottom: "0.75rem" }}>
-                      <strong>{series.title}</strong> - {series.status}
+                      <Link to={`/story/${series.id}`}>
+                        <strong>{series.title}</strong>
+                      </Link>{" "}
+                      - {series.status}
                       <ul>
                         {series.episodes.map((episode) => (
                           <li key={episode.id}>

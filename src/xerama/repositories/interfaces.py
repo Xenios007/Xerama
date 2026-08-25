@@ -146,6 +146,39 @@ class ConceptRepository(Protocol):
         approved_concept: ConceptCandidate,
     ) -> str: ...
 
+    async def list_candidates(self, project_id: str) -> list["ConceptCandidateRecord"]:
+        """See MODULE-057 - "inspect candidate lineage and scores." Every
+        candidate ever generated for this project, accepted or not
+        (ADR-019 - never deleted on rejection)."""
+        ...
+
+    async def list_judge_decisions(self, project_id: str) -> list["JudgeDecisionRecord"]:
+        ...
+
+
+class ConceptCandidateRecord(BaseModel):
+    id: str
+    project_id: str
+    batch_id: str
+    slot: str
+    provider: str
+    model: str
+    candidate: ConceptCandidate
+    accepted: bool
+    created_at: datetime
+
+
+class JudgeDecisionRecord(BaseModel):
+    id: str
+    project_id: str
+    batch_id: str
+    decision: str
+    provider: str
+    model: str
+    result: JudgeResult
+    approved_concept: ConceptCandidate
+    created_at: datetime
+
 
 class SeriesRepository(Protocol):
     async def create_series(
@@ -196,6 +229,13 @@ class EpisodeRepository(Protocol):
     async def get_shot_plan(self, episode_id: str) -> EpisodeShotPlan | None: ...
 
     async def save_quality_report(self, episode_id: str, result: QCResult) -> None: ...
+
+    async def list_quality_reports(self, episode_id: str) -> list[QCResult]:
+        """See MODULE-057 - "show continuity/quality gates" for an
+        episode without re-running generation. Every QC attempt ever
+        recorded for this episode (director/retention/continuity),
+        oldest first."""
+        ...
 
     async def save_canon_event(self, episode_id: str, event: CanonEvent) -> None: ...
 

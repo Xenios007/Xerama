@@ -261,6 +261,10 @@ def get_project_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemy
     return SQLAlchemyProjectRepository(session)
 
 
+def get_concept_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyConceptRepository:
+    return SQLAlchemyConceptRepository(session)
+
+
 def get_series_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemySeriesRepository:
     return SQLAlchemySeriesRepository(session)
 

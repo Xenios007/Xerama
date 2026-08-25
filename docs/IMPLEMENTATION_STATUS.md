@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-056 (Project Dashboard)._
+_Last updated: 2026-08-25 - MODULE-057 (Story Studio)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1493,6 +1493,47 @@ surface built across earlier modules, not new subsystems.
   `typecheck`/`lint`/`build` all clean and the full Python suite
   unaffected (509, no backend changes this module).
 
+### MODULE-057 - Story Studio
+
+- **New backend read endpoints** (genuine gaps found auditing what
+  MODULE-057 needs to display - none of this existed before): `GET
+  /projects/{id}/concept-candidates` / `/judge-decisions` (new
+  `ConceptRepository.list_candidates`/`list_judge_decisions` +
+  `ConceptCandidateRecord`/`JudgeDecisionRecord` DTOs - "inspect
+  candidate lineage and scores" without re-running dual generation),
+  `GET /episodes/{id}/quality-reports` (new
+  `EpisodeRepository.list_quality_reports`, reading the `QualityReport`
+  rows every Director/retention/continuity check already persists -
+  "show continuity/quality gates"), `GET /series/{id}/canon-events`
+  (thin wrapper over the already-existing `list_canon_events` -
+  "make canon/reveal state inspectable"). All read-only, additive, no
+  risk to existing generation logic.
+- **`StoryStudioPage`** (`frontend/src/pages/StoryStudioPage.tsx`,
+  reached via a series link from `ProjectDetailPage`) - five panels:
+  Series Bible (premise/central dramatic question), Concept lineage
+  (every candidate + the judge's decision, both from the new endpoints),
+  Season plan (version/status/QC + an Approve action wired to
+  MODULE-047's `POST .../season-plan/{version}/approve`), Episodes
+  (list + "generate next episode" showing the returned retention/
+  continuity `QCResult`s as color-coded badges - pass/warn/block, per
+  ADR-018), Canon state (committed events).
+- **"Edit/lock approved story artifacts"** - not built this pass; the
+  backend has no PATCH/lock endpoint for an approved `SeriesBible` yet
+  either (only `get_bible`/`save_bible`, no partial-update or lock
+  concept), so there is nothing for the UI to call. Documented gap for
+  the next pass rather than a client-side stub with no backend behind
+  it.
+- Acceptance criterion met (for what's built): "story development no
+  longer requires CLI/raw JSON inspection" for candidate lineage, bible,
+  season plan, episode QC gates, and canon state - verified by 3 new
+  backend tests (`list_candidates`/`list_judge_decisions` accuracy,
+  `list_quality_reports` ordering) plus 1 API end-to-end test (all four
+  new endpoints reachable after `generate-series`), and 3 new Vitest
+  tests (all five panels render from mocked data, season-plan approve
+  posts the exact version, generate-next-episode renders the returned
+  QC badges) - full suites green (Python 510, frontend 14) with
+  `typecheck`/`lint`/`build` all clean.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1518,7 +1559,7 @@ surface built across earlier modules, not new subsystems.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Remaining frontend studio pages (MODULE-057-060 - the shell from
+- Remaining frontend studio pages (MODULE-058-060 - the shell from
   MODULE-055 is ready to host them), analytics/learning (MODULE-061-065),
   security/deployment/hardening (MODULE-066-070), testing/eval
   frameworks (MODULE-071-076), backup/migration/docs/release

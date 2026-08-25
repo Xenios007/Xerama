@@ -60,12 +60,77 @@ export interface SeriesRecord {
   status: string;
 }
 
+export interface SeriesBible {
+  title: string;
+  logline: string;
+  premise: string;
+  emotional_engine: string;
+  central_dramatic_question: string;
+}
+
 export interface EpisodeRecord {
   id: string;
   series_id: string;
   episode_number: number;
   status: string;
   version: number;
+}
+
+export interface EpisodeGenerationResult {
+  episode_id: string;
+  episode_number: number;
+  version: number;
+  retention_qc: QCResult;
+  continuity_qc: QCResult;
+  canon_committed: boolean;
+}
+
+export type QCStatus = "pass" | "warn" | "block";
+
+export interface QCResult {
+  gate: string;
+  status: QCStatus;
+  score: number;
+  reasons: string[];
+  repair_recommendation: string;
+}
+
+export interface SeasonPlanRecord {
+  id: string;
+  series_id: string;
+  version: number;
+  status: string;
+  qc_status: string;
+  qc_score: number;
+  qc_reasons: string[];
+}
+
+export interface ConceptCandidateRecord {
+  id: string;
+  batch_id: string;
+  slot: string;
+  provider: string;
+  model: string;
+  accepted: boolean;
+  candidate: { title: string; logline: string };
+  created_at: string;
+}
+
+export interface JudgeDecisionRecord {
+  id: string;
+  batch_id: string;
+  decision: string;
+  provider: string;
+  model: string;
+  approved_concept: { title: string };
+  created_at: string;
+}
+
+export interface CanonEvent {
+  change_type: string;
+  episode_number: number;
+  description: string;
+  committed: boolean;
 }
 
 export type AssetType = "image" | "video" | "audio" | "subtitle" | "document" | "other";

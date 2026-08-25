@@ -7,13 +7,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type {
+  CanonEvent,
+  ConceptCandidateRecord,
   CostSummaryResponse,
   CreativeBrief,
+  EpisodeGenerationResult,
+  EpisodeRecord,
   GenerateSeriesResult,
   JobRecord,
+  JudgeDecisionRecord,
   ObservabilitySnapshot,
   ProjectRecord,
   ProjectStatusResponse,
+  QCResult,
+  SeasonPlanRecord,
+  SeriesBible,
+  SeriesRecord,
 } from "./types";
 
 export const queryKeys = {
@@ -92,6 +101,109 @@ export function useArchiveProject() {
     onSuccess: (_data, projectId) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects });
       void queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) });
+    },
+  });
+}
+
+export function useSeries(seriesId: string | undefined) {
+  return useQuery({
+    queryKey: ["series", seriesId],
+    queryFn: () => api.get<SeriesRecord>(`/series/${seriesId}`),
+    enabled: Boolean(seriesId),
+  });
+}
+
+export function useSeriesBible(seriesId: string | undefined) {
+  return useQuery({
+    queryKey: ["series", seriesId, "bible"],
+    queryFn: () => api.get<SeriesBible>(`/series/${seriesId}/bible`),
+    enabled: Boolean(seriesId),
+  });
+}
+
+export function useSeasonPlan(seriesId: string | undefined) {
+  return useQuery({
+    queryKey: ["series", seriesId, "season-plan"],
+    queryFn: () => api.get<SeasonPlanRecord>(`/series/${seriesId}/season-plan`),
+    enabled: Boolean(seriesId),
+    retry: false,
+  });
+}
+
+export function useSeriesEpisodes(seriesId: string | undefined) {
+  return useQuery({
+    queryKey: ["series", seriesId, "episodes"],
+    queryFn: () => api.get<EpisodeRecord[]>(`/series/${seriesId}/episodes`),
+    enabled: Boolean(seriesId),
+  });
+}
+
+export function useConceptCandidates(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["projects", projectId, "concept-candidates"],
+    queryFn: () => api.get<ConceptCandidateRecord[]>(`/projects/${projectId}/concept-candidates`),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function useJudgeDecisions(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["projects", projectId, "judge-decisions"],
+    queryFn: () => api.get<JudgeDecisionRecord[]>(`/projects/${projectId}/judge-decisions`),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function useEpisodeQualityReports(episodeId: string | undefined) {
+  return useQuery({
+    queryKey: ["episodes", episodeId, "quality-reports"],
+    queryFn: () => api.get<QCResult[]>(`/episodes/${episodeId}/quality-reports`),
+    enabled: Boolean(episodeId),
+  });
+}
+
+export function useCanonEvents(seriesId: string | undefined) {
+  return useQuery({
+    queryKey: ["series", seriesId, "canon-events"],
+    queryFn: () => api.get<CanonEvent[]>(`/series/${seriesId}/canon-events`),
+    enabled: Boolean(seriesId),
+  });
+}
+
+export function useApproveSeasonPlan(seriesId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (version: number) =>
+      api.post<SeasonPlanRecord>(`/series/${seriesId}/season-plan/${version}/approve`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["series", seriesId, "season-plan"] });
+    },
+  });
+}
+
+export function useGenerateNextEpisode(projectId: string | undefined, seriesId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api.post<EpisodeGenerationResult>(
+        `/series/${seriesId}/episodes/generate-next?project_id=${projectId}`,
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["series", seriesId, "episodes"] });
+      if (projectId) void queryClient.invalidateQueries({ queryKey: queryKeys.projectStatus(projectId) });
+    },
+  });
+}
+
+export function useRegenerateEpisode(projectId: string | undefined, seriesId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (episodeNumber: number) =>
+      api.post<EpisodeGenerationResult>(
+        `/series/${seriesId}/episodes/${episodeNumber}/generate?project_id=${projectId}`,
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["series", seriesId, "episodes"] });
     },
   });
 }

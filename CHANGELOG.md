@@ -4,6 +4,18 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-057 - Story Studio)
+
+- New backend read endpoints: `GET /projects/{id}/concept-candidates`
+  / `/judge-decisions` (new `ConceptRepository.list_candidates`/
+  `list_judge_decisions`), `GET /episodes/{id}/quality-reports` (new
+  `EpisodeRepository.list_quality_reports`), `GET
+  /series/{id}/canon-events`.
+- `StoryStudioPage` - Series Bible, concept lineage, season plan (with
+  approve), episodes (generate-next with QC badges), canon state.
+- 3 new backend tests + 1 API test; 3 new Vitest tests (14 total);
+  typecheck/lint/build clean.
+
 ### Added (MODULE-056 - Project Dashboard)
 
 - `DashboardPage` - project cards (status badge, description, created
