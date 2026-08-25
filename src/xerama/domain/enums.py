@@ -223,6 +223,19 @@ class MediaQCDimension(str, Enum):
     DIALOGUE_AUDIO = "dialogue_audio"
 
 
+class RepairAction(str, Enum):
+    """See MODULE-045 - Automatic Retakes. Deterministic mapping from a
+    QC-BLOCKed dimension to the smallest sensible repair, in escalation
+    order. `ESCALATE` means the automatic-repair budget is exhausted -
+    stop retrying and leave the take for human review."""
+
+    STRONGER_REFERENCES = "stronger_references"
+    PROMPT_REPAIR = "prompt_repair"
+    ALTERNATE_PROVIDER = "alternate_provider"
+    FULL_RETAKE = "full_retake"
+    ESCALATE = "escalate"
+
+
 class CanonChangeType(str, Enum):
     """See docs/DATA_MODEL.md (Episode State Change)."""
 

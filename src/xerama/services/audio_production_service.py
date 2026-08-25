@@ -15,13 +15,14 @@ this service).
 
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetType
 from xerama.domain.audio_production import ShotAudioProduction
-from xerama.domain.enums import AudioMode, MediaQCDimension
+from xerama.domain.enums import AudioMode, MediaQCDimension, RepairAction
 from xerama.providers.media_qc import MediaQCContext
 from xerama.providers.voice import VoiceGenerationRequest, VoiceProvider
 from xerama.repositories.interfaces import AudioProductionRepository, VoiceProfileRepository
 from xerama.services.asset_service import AssetService
-from xerama.services.media_qc_service import MediaQCService
+from xerama.services.media_qc_service import MediaQCService, QCGateBlockedError
 from xerama.services.media_router import MediaProviderRouter
+from xerama.services.retake_service import AutomaticRetakeService
 
 
 class AudioProductionService:
@@ -65,14 +66,20 @@ class AudioProductionService:
         text: str,
         voice_router: MediaProviderRouter[VoiceProvider],
         series_id: str | None = None,
+        excluded_providers: set[str] | None = None,
     ) -> Asset:
         """Align scripted dialogue to this shot: `text` should be the
         shot's exact scripted line (`Shot.dialogue`), so the take is
-        reproducible from canon, not improvised per attempt."""
+        reproducible from canon, not improvised per attempt.
+        `excluded_providers` is a MODULE-045 auto-heal lever
+        (ALTERNATE_PROVIDER) - defaults to "no restriction"."""
         production = await self.get(production_id)
+        excluded_providers = excluded_providers or set()
         profile = await self._voice_profile_repo.get_or_create(character_id)
 
         def is_compatible(provider: VoiceProvider) -> bool:
+            if provider.name in excluded_providers:
+                return False
             capabilities = provider.capabilities
             if profile.language not in capabilities.languages:
                 return False
@@ -162,6 +169,53 @@ class AudioProductionService:
         """Production stays `draft` - the next generate/upload call is the
         retry. Never overwrites/deletes the rejected take (ADR-019)."""
         return await self._asset_service.reject(asset_id, reason)
+
+    async def generate_with_auto_heal(
+        self,
+        production_id: str,
+        project_id: str,
+        character_id: str,
+        text: str,
+        voice_router: MediaProviderRouter[VoiceProvider],
+        retake_service: AutomaticRetakeService,
+        series_id: str | None = None,
+        expected_duration_seconds: float | None = None,
+    ) -> tuple[Asset, ShotAudioProduction]:
+        """MODULE-045 - see `StoryboardService.generate_with_auto_heal`;
+        same generate -> QC-gate -> repair-and-retry loop. Dialogue takes
+        have no visual reference set or composition/continuity/motion
+        dimensions, so only ALTERNATE_PROVIDER (media_health) has a
+        distinct lever here - everything else retries unchanged."""
+        excluded_providers: set[str] = set()
+        while True:
+            asset = await self.generate_dialogue_take(
+                production_id,
+                project_id,
+                character_id,
+                text,
+                voice_router,
+                series_id=series_id,
+                excluded_providers=excluded_providers,
+            )
+            try:
+                approved = await self.accept_take(
+                    production_id, asset.id, expected_duration_seconds=expected_duration_seconds
+                )
+                return asset, approved
+            except QCGateBlockedError as exc:
+                production = await self.get(production_id)
+                plan = retake_service.plan_repair(exc.attempts, production.auto_retake_attempts)
+                await self._production_repo.record_retake_attempt(
+                    production_id, escalated=(plan.action == RepairAction.ESCALATE)
+                )
+                await self.reject_take(
+                    asset.id, f"MODULE-045 auto-heal ({plan.action.value}): {'; '.join(plan.reasons)}"
+                )
+                if plan.action == RepairAction.ESCALATE:
+                    raise
+                if plan.action == RepairAction.ALTERNATE_PROVIDER:
+                    excluded_providers.add(asset.provenance.provider)
+                # Every other action: no distinct lever for audio, retry unchanged.
 
     async def list_takes(self, project_id: str, production: ShotAudioProduction) -> list[Asset]:
         return await self._asset_service.list_by_ownership(

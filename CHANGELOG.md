@@ -4,6 +4,41 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-045 - Automatic Retakes)
+
+- `RepairAction` (stronger_references/prompt_repair/alternate_provider/
+  full_retake/escalate) + `pipeline/retake_policy.py:classify_repair_action`
+  - deterministic dimension-keyword mapping from a MODULE-044 QC BLOCK to
+    the smallest sensible repair.
+- `services/retake_service.py:AutomaticRetakeService` - pure budget/
+  escalation policy (`MAX_AUTO_RETAKE_ATTEMPTS = 3`), no provider coupling.
+- `Storyboard`/`ShotVideoProduction`/`ShotAudioProduction` gain
+  `auto_retake_attempts`/`escalated`; new `record_retake_attempt` repo
+  method; migration `b2c3d4e5f6a7_add_auto_retake_fields`.
+- `StoryboardService`/`VideoProductionService`/`AudioProductionService`
+  gain `generate_with_auto_heal` - generate -> QC-gate -> on BLOCK, reject
+  the take with its QC reasons, then either escalate or retry with an
+  adjusted request (stronger reference requirement, a QC-reasons prompt
+  suffix, or an excluded-provider set) bounded by the attempt budget.
+- New API: `POST /storyboards/{id}/keyframes/auto-heal`,
+  `POST /video-productions/{id}/takes/auto-heal`,
+  `POST /audio-productions/{id}/takes/auto-heal`.
+- 15 new tests (11 policy, 1 per-service repair-then-succeed integration
+  test, 1 full-budget-escalation test, 1 API end-to-end test) plus the
+  full existing suite (424 tests) staying green unmodified in behavior.
+- Fixed a real, reproducible-on-this-platform bug found while building
+  this: `db/base.py:utcnow()` used bare `datetime.now(timezone.utc)`,
+  whose resolution is coarse enough on this OS that two rows inserted
+  microseconds apart (e.g. a QC attempt's own two rows, or two enqueued
+  jobs) could get an identical `created_at`, silently breaking any code
+  that orders by it to recover insertion order (`MediaQCRepository.
+  get_latest`, `JobRepository.claim`'s FIFO tie-break -
+  `test_claim_is_fifo_within_same_priority` was intermittently failing
+  from this before the fix). `utcnow()` now nudges by one microsecond
+  when the clock hasn't visibly advanced, keeping every timestamp real
+  UTC and strictly monotonic within the process - verified with three
+  consecutive full-suite runs, all green.
+
 ### Added (MODULE-044 - Multimodal QC)
 
 - `MediaQCDimension` (identity/style/continuity/composition/motion/

@@ -1199,6 +1199,8 @@ def _storyboard(row: m.Storyboard) -> Storyboard:
         status=row.status,
         layout_description=row.layout_description,
         approved_keyframe_asset_id=row.approved_keyframe_asset_id,
+        auto_retake_attempts=row.auto_retake_attempts,
+        escalated=row.escalated,
     )
 
 
@@ -1247,6 +1249,16 @@ class SQLAlchemyStoryboardRepository:
         )
         return [_storyboard(row) for row in result.scalars()]
 
+    async def record_retake_attempt(self, storyboard_id: str, escalated: bool = False) -> Storyboard:
+        row = await self._session.get(m.Storyboard, storyboard_id)
+        if row is None:
+            raise ValueError(f"storyboard {storyboard_id} not found")
+        row.auto_retake_attempts += 1
+        if escalated:
+            row.escalated = True
+        await self._session.flush()
+        return _storyboard(row)
+
 
 def _video_production(row: m.ShotVideoProduction) -> ShotVideoProduction:
     return ShotVideoProduction(
@@ -1258,6 +1270,8 @@ def _video_production(row: m.ShotVideoProduction) -> ShotVideoProduction:
         status=row.status,
         approved_take_asset_id=row.approved_take_asset_id,
         extracted_last_frame_asset_id=row.extracted_last_frame_asset_id,
+        auto_retake_attempts=row.auto_retake_attempts,
+        escalated=row.escalated,
     )
 
 
@@ -1336,6 +1350,18 @@ class SQLAlchemyVideoProductionRepository:
             select(m.ShotVideoProduction).where(m.ShotVideoProduction.episode_id == episode_id)
         )
         return [_video_production(row) for row in result.scalars()]
+
+    async def record_retake_attempt(
+        self, production_id: str, escalated: bool = False
+    ) -> ShotVideoProduction:
+        row = await self._session.get(m.ShotVideoProduction, production_id)
+        if row is None:
+            raise ValueError(f"video production {production_id} not found")
+        row.auto_retake_attempts += 1
+        if escalated:
+            row.escalated = True
+        await self._session.flush()
+        return _video_production(row)
 
 
 def _voice_profile(row: m.VoiceProfile) -> VoiceProfile:
@@ -1416,6 +1442,8 @@ def _audio_production(row: m.ShotAudioProduction) -> ShotAudioProduction:
         audio_mode=AudioMode(row.audio_mode),
         status=row.status,
         approved_take_asset_id=row.approved_take_asset_id,
+        auto_retake_attempts=row.auto_retake_attempts,
+        escalated=row.escalated,
     )
 
 
@@ -1467,6 +1495,18 @@ class SQLAlchemyAudioProductionRepository:
             select(m.ShotAudioProduction).where(m.ShotAudioProduction.episode_id == episode_id)
         )
         return [_audio_production(row) for row in result.scalars()]
+
+    async def record_retake_attempt(
+        self, production_id: str, escalated: bool = False
+    ) -> ShotAudioProduction:
+        row = await self._session.get(m.ShotAudioProduction, production_id)
+        if row is None:
+            raise ValueError(f"audio production {production_id} not found")
+        row.auto_retake_attempts += 1
+        if escalated:
+            row.escalated = True
+        await self._session.flush()
+        return _audio_production(row)
 
 
 def _music_cue(row: m.MusicCue) -> MusicCue:

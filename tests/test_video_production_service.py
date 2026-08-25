@@ -352,3 +352,35 @@ async def test_generate_lip_synced_take_permissive_without_blocking_data(session
         blocking_plan=None,
     )
     assert synced.take_number == 3
+
+
+async def test_generate_with_auto_heal_repairs_after_motion_block(session, storage) -> None:
+    """MODULE-045 - a MOTION BLOCK triggers a PROMPT_REPAIR retry
+    (negative_prompt gets the QC reason appended) which then succeeds."""
+    from xerama.domain.enums import QCStatus
+    from xerama.domain.quality import QCResult
+    from xerama.services.retake_service import AutomaticRetakeService
+
+    episode_id = await _episode(session)
+    blocked = QCResult(gate="motion", status=QCStatus.BLOCK, score=0.0, reasons=["impossible motion"])
+    qc_provider = FakeMediaQCProvider([blocked])
+    service = VideoProductionService(
+        production_repo=SQLAlchemyVideoProductionRepository(session),
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        frame_extractor=FakeFrameExtractor(),
+        media_qc=_media_qc(session, storage, qc_provider),
+    )
+    production = await service.get_or_create_production(episode_id, 1, 1)
+    await session.commit()
+
+    provider = FakeVideoProvider([b"take-1", b"take-2"])
+    router = MediaProviderRouter([provider])
+    asset, approved = await service.generate_with_auto_heal(
+        production.id, "PROJ_1", _request(), router, AutomaticRetakeService()
+    )
+    await session.commit()
+
+    assert asset.take_number == 2
+    assert approved.status == "approved"
+    assert approved.auto_retake_attempts == 1
+    assert "impossible motion" in provider.calls[1][0].negative_prompt

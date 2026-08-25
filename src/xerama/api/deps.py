@@ -42,6 +42,7 @@ from xerama.services.audio_production_service import AudioProductionService
 from xerama.services.character_casting_service import CharacterCastingService
 from xerama.services.media_qc_service import MediaQCService
 from xerama.services.music_cue_service import MusicCueService
+from xerama.services.retake_service import AutomaticRetakeService
 from xerama.services.sound_effect_service import SoundEffectCueService
 from xerama.services.storyboard_service import StoryboardService
 from xerama.services.style_bible_service import StyleBibleService
@@ -90,6 +91,10 @@ def get_style_bible_service(
     session: AsyncSession = Depends(get_session),
 ) -> StyleBibleService:
     return StyleBibleService(repo=SQLAlchemyStyleBibleRepository(session))
+
+
+def get_retake_service() -> AutomaticRetakeService:
+    return AutomaticRetakeService()
 
 
 def get_media_qc_provider(request: Request) -> MediaQCProvider:

@@ -196,3 +196,33 @@ async def test_list_takes_returns_lineage_in_order(session, storage) -> None:
 
     takes = await service.list_takes("PROJ_1", production)
     assert [t.take_number for t in takes] == [1, 2]
+
+
+async def test_generate_with_auto_heal_repairs_after_media_health_block(session, storage) -> None:
+    """MODULE-045 - a genuine MEDIA_HEALTH BLOCK (zero-byte take from a
+    misbehaving provider) triggers an ALTERNATE_PROVIDER retry that
+    excludes the failing provider and succeeds on the next one."""
+    from xerama.services.retake_service import AutomaticRetakeService
+
+    episode_id = await _episode(session)
+    service = _service(session, storage)
+    production = await service.get_or_create_production(episode_id, 1, 1, AudioMode.TTS_LIPSYNC)
+    await session.commit()
+
+    flaky = FakeVoiceProvider([b""], name="flaky")
+    reliable = FakeVoiceProvider([b"good audio"], name="reliable")
+    router = MediaProviderRouter([flaky, reliable])
+    asset, approved = await service.generate_with_auto_heal(
+        production.id, "PROJ_1", "CHAR_001", "This can't be real.", router, AutomaticRetakeService()
+    )
+    await session.commit()
+
+    assert asset.take_number == 2
+    assert asset.provenance.provider == "reliable"
+    assert approved.status == "approved"
+    assert approved.auto_retake_attempts == 1
+
+    takes = await service.list_takes("PROJ_1", production)
+    rejected = [t for t in takes if t.take_number == 1]
+    assert rejected[0].status.value == "rejected"
+    assert "zero size_bytes" in rejected[0].rejection_reason

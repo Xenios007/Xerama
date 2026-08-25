@@ -365,6 +365,11 @@ class StoryboardRepository(Protocol):
 
     async def list_by_episode(self, episode_id: str) -> list[Storyboard]: ...
 
+    async def record_retake_attempt(self, storyboard_id: str, escalated: bool = False) -> Storyboard:
+        """See MODULE-045 - increments `auto_retake_attempts` (never
+        reset) and sets `escalated` once the repair budget is exhausted."""
+        ...
+
 
 class VideoProductionRepository(Protocol):
     """Per-shot video workflow records - see Module 08."""
@@ -392,6 +397,12 @@ class VideoProductionRepository(Protocol):
     async def set_extracted_last_frame(self, production_id: str, asset_id: str) -> ShotVideoProduction: ...
 
     async def list_by_episode(self, episode_id: str) -> list[ShotVideoProduction]: ...
+
+    async def record_retake_attempt(
+        self, production_id: str, escalated: bool = False
+    ) -> ShotVideoProduction:
+        """See MODULE-045 - see `StoryboardRepository.record_retake_attempt`."""
+        ...
 
 
 class VoiceProfileRepository(Protocol):
@@ -425,6 +436,12 @@ class AudioProductionRepository(Protocol):
     async def approve(self, production_id: str, asset_id: str) -> ShotAudioProduction: ...
 
     async def list_by_episode(self, episode_id: str) -> list[ShotAudioProduction]: ...
+
+    async def record_retake_attempt(
+        self, production_id: str, escalated: bool = False
+    ) -> ShotAudioProduction:
+        """See MODULE-045 - see `StoryboardRepository.record_retake_attempt`."""
+        ...
 
 
 class MusicCueRepository(Protocol):

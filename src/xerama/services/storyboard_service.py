@@ -13,15 +13,16 @@ never a new media-storage mechanism of its own.
 """
 
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetType
-from xerama.domain.enums import MediaQCDimension
+from xerama.domain.enums import MediaQCDimension, RepairAction
 from xerama.domain.generation_request import ShotGenerationRequest
 from xerama.domain.storyboard import Storyboard
 from xerama.providers.image import ImageEditRequest, ImageGenerationRequest, ImageProvider
 from xerama.providers.media_qc import MediaQCContext
 from xerama.repositories.interfaces import StoryboardRepository
 from xerama.services.asset_service import AssetService
-from xerama.services.media_qc_service import MediaQCService
+from xerama.services.media_qc_service import MediaQCService, QCGateBlockedError
 from xerama.services.media_router import MediaProviderRouter
+from xerama.services.retake_service import AutomaticRetakeService
 
 
 class StoryboardService:
@@ -58,8 +59,14 @@ class StoryboardService:
         request: ShotGenerationRequest,
         image_router: MediaProviderRouter[ImageProvider],
         series_id: str | None = None,
+        excluded_providers: set[str] | None = None,
+        min_reference_images: int | None = None,
     ) -> Asset:
+        """`excluded_providers`/`min_reference_images` are MODULE-045
+        auto-heal levers (ALTERNATE_PROVIDER / STRONGER_REFERENCES) - both
+        default to "no restriction" so ordinary callers are unaffected."""
         storyboard = await self.get(storyboard_id)
+        excluded_providers = excluded_providers or set()
 
         reference_ids = list(request.references.character_asset_ids)
         if request.references.style_asset_id:
@@ -79,8 +86,12 @@ class StoryboardService:
         wants_references = bool(reference_images)
 
         def is_compatible(provider: ImageProvider) -> bool:
+            if provider.name in excluded_providers:
+                return False
             capabilities = provider.capabilities
             if request.aspect_ratio not in capabilities.supported_aspects:
+                return False
+            if min_reference_images is not None and capabilities.max_reference_images < min_reference_images:
                 return False
             return not (wants_references and not capabilities.supports_reference_images)
 
@@ -244,6 +255,75 @@ class StoryboardService:
         """Storyboard stays in `draft` - the next `generate_keyframe`/
         `upload_keyframe` call is the retry."""
         return await self._asset_service.reject(asset_id, reason)
+
+    async def generate_with_auto_heal(
+        self,
+        storyboard_id: str,
+        project_id: str,
+        request: ShotGenerationRequest,
+        image_router: MediaProviderRouter[ImageProvider],
+        retake_service: AutomaticRetakeService,
+        series_id: str | None = None,
+        style_dna: str = "",
+        character_reference_ids: list[str] | None = None,
+    ) -> tuple[Asset, Storyboard]:
+        """MODULE-045 - generate, QC-gate, and automatically repair-and-
+        retry a keyframe up to `AutomaticRetakeService`'s attempt budget.
+        Every failed take is preserved and explicitly rejected with its QC
+        reasons (ADR-019 - never silently abandoned). Returns the accepted
+        asset + storyboard once QC passes, or re-raises
+        `QCGateBlockedError` once the budget is exhausted - the storyboard
+        is marked `escalated` for human review at that point."""
+        excluded_providers: set[str] = set()
+        min_reference_images: int | None = None
+        current_request = request
+        while True:
+            asset = await self.generate_keyframe(
+                storyboard_id,
+                project_id,
+                current_request,
+                image_router,
+                series_id=series_id,
+                excluded_providers=excluded_providers,
+                min_reference_images=min_reference_images,
+            )
+            try:
+                approved = await self.accept_keyframe(
+                    storyboard_id,
+                    asset.id,
+                    style_dna=style_dna,
+                    character_reference_ids=character_reference_ids,
+                )
+                return asset, approved
+            except QCGateBlockedError as exc:
+                storyboard = await self.get(storyboard_id)
+                plan = retake_service.plan_repair(exc.attempts, storyboard.auto_retake_attempts)
+                await self._storyboard_repo.record_retake_attempt(
+                    storyboard_id, escalated=(plan.action == RepairAction.ESCALATE)
+                )
+                await self.reject_keyframe(
+                    asset.id, f"MODULE-045 auto-heal ({plan.action.value}): {'; '.join(plan.reasons)}"
+                )
+                if plan.action == RepairAction.ESCALATE:
+                    raise
+                if plan.action == RepairAction.STRONGER_REFERENCES:
+                    min_reference_images = len(
+                        current_request.references.character_asset_ids
+                    ) + bool(current_request.references.style_asset_id) + bool(
+                        current_request.references.location_asset_id
+                    )
+                elif plan.action == RepairAction.PROMPT_REPAIR:
+                    suffix = "; ".join(plan.reasons)
+                    current_request = current_request.model_copy(
+                        update={
+                            "negative_prompt": (current_request.negative_prompt + f"; avoid: {suffix}").strip(
+                                "; "
+                            )
+                        }
+                    )
+                elif plan.action == RepairAction.ALTERNATE_PROVIDER:
+                    excluded_providers.add(asset.provenance.provider)
+                # FULL_RETAKE: no adjustment, just try again.
 
     async def list_keyframes(self, project_id: str, storyboard: Storyboard) -> list[Asset]:
         return await self._asset_service.list_by_ownership(

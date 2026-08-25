@@ -11,6 +11,7 @@ from xerama.api.deps import (
     get_asset_service,
     get_episode_repo,
     get_lip_sync_router,
+    get_retake_service,
     get_series_repo,
     get_storyboard_service,
     get_style_bible_repo,
@@ -26,6 +27,7 @@ from xerama.providers.video import VideoProvider
 from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository, StyleBibleRepository
 from xerama.services.asset_service import AssetService
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
+from xerama.services.retake_service import AutomaticRetakeService
 from xerama.services.storyboard_service import StoryboardService
 from xerama.services.media_qc_service import QCGateBlockedError
 from xerama.services.video_production_service import (
@@ -135,6 +137,67 @@ async def generate_take(
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ContinuityOrderingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/video-productions/{production_id}/takes/auto-heal", response_model=Asset)
+async def generate_take_with_auto_heal(
+    production_id: str,
+    service: VideoProductionService = Depends(get_video_production_service),
+    storyboard_service: StoryboardService = Depends(get_storyboard_service),
+    asset_service: AssetService = Depends(get_asset_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    style_bible_repo: StyleBibleRepository = Depends(get_style_bible_repo),
+    video_router: MediaProviderRouter[VideoProvider] = Depends(get_video_router),
+    retake_service: AutomaticRetakeService = Depends(get_retake_service),
+) -> Asset:
+    """MODULE-045 - see storyboards.py's `generate_keyframe_with_auto_heal`;
+    same generate -> QC-gate -> repair-and-retry loop for video takes."""
+    try:
+        production = await service.get(production_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    episode, series = await episode_context(production.episode_id, episode_repo, series_repo)
+    plan = await episode_repo.get_shot_plan(production.episode_id)
+    if plan is None:
+        raise HTTPException(status_code=409, detail="episode has no shot plan yet")
+    scene, shot = find_shot(plan, production.scene_number, production.shot_number)
+    bible = await series_repo.get_bible(episode.series_id)
+    if bible is None:
+        raise HTTPException(status_code=409, detail="series has no approved Series Bible yet")
+    cast = await series_repo.get_cast(episode.series_id)
+    style_bible = await style_bible_repo.get_or_create(episode.series_id)
+    request = PromptCompiler().compile_shot(shot, scene, cast, bible, style_bible)
+
+    keyframe_bytes = None
+    storyboard = await storyboard_service.get_or_create_storyboard(
+        production.episode_id, production.scene_number, production.shot_number
+    )
+    if storyboard.status == "approved" and storyboard.approved_keyframe_asset_id:
+        try:
+            keyframe_bytes = await asset_service.read_bytes(storyboard.approved_keyframe_asset_id)
+        except FileNotFoundError:
+            keyframe_bytes = None
+
+    try:
+        asset, _ = await service.generate_with_auto_heal(
+            production_id,
+            series.project_id,
+            request,
+            video_router,
+            retake_service,
+            keyframe_bytes=keyframe_bytes,
+            series_id=episode.series_id,
+            character_reference_ids=list(request.references.character_asset_ids),
+        )
+        return asset
+    except NoEligibleProviderError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ContinuityOrderingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except QCGateBlockedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 

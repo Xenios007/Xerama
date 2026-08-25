@@ -307,3 +307,82 @@ async def test_edit_keyframe_rejects_mask_when_provider_lacks_mask_support(sessi
         await service.edit_keyframe(
             storyboard.id, "PROJ_1", "fix it", base.id, router, mask_asset_id=mask.id
         )
+
+
+async def test_generate_with_auto_heal_repairs_after_block_then_succeeds(session, storage) -> None:
+    """MODULE-045 - a COMPOSITION BLOCK triggers a PROMPT_REPAIR retry
+    (negative_prompt gets the QC reason appended) which then succeeds."""
+    from xerama.domain.enums import QCStatus
+    from xerama.domain.quality import QCResult
+    from xerama.services.retake_service import AutomaticRetakeService
+
+    episode_id = await _episode(session)
+    blocked = QCResult(gate="composition", status=QCStatus.BLOCK, score=0.0, reasons=["crowded frame"])
+    qc_provider = FakeMediaQCProvider([blocked])
+    service = StoryboardService(
+        storyboard_repo=SQLAlchemyStoryboardRepository(session),
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        media_qc=_media_qc(session, storage, qc_provider),
+    )
+    storyboard = await service.get_or_create_storyboard(episode_id, 1, 1)
+    await session.commit()
+
+    image_provider = FakeImageProvider([b"take-1", b"take-2"])
+    router = MediaProviderRouter([image_provider])
+    asset, approved = await service.generate_with_auto_heal(
+        storyboard.id, "PROJ_1", _request(), router, AutomaticRetakeService()
+    )
+    await session.commit()
+
+    assert asset.take_number == 2
+    assert approved.status == "approved"
+    assert approved.auto_retake_attempts == 1
+    assert approved.escalated is False
+    # The retried request carried the QC reason forward.
+    assert "crowded frame" in image_provider.calls[1][0].negative_prompt
+
+    takes = await service.list_keyframes("PROJ_1", storyboard)
+    rejected = [t for t in takes if t.take_number == 1]
+    assert rejected[0].status.value == "rejected"
+    assert "MODULE-045 auto-heal" in rejected[0].rejection_reason
+
+
+async def test_generate_with_auto_heal_escalates_after_budget(session, storage) -> None:
+    from xerama.domain.enums import QCStatus
+    from xerama.domain.quality import QCResult
+    from xerama.services.media_qc_service import QCGateBlockedError
+    from xerama.services.retake_service import MAX_AUTO_RETAKE_ATTEMPTS, AutomaticRetakeService
+
+    episode_id = await _episode(session)
+    qc_provider = FakeMediaQCProvider(
+        [
+            QCResult(gate="composition", status=QCStatus.BLOCK, score=0.0, reasons=[f"bad take {i}"])
+            for i in range(MAX_AUTO_RETAKE_ATTEMPTS + 1)
+        ]
+    )
+    service = StoryboardService(
+        storyboard_repo=SQLAlchemyStoryboardRepository(session),
+        asset_service=AssetService(storage=storage, asset_repo=SQLAlchemyAssetRepository(session)),
+        media_qc=_media_qc(session, storage, qc_provider),
+    )
+    storyboard = await service.get_or_create_storyboard(episode_id, 1, 1)
+    await session.commit()
+
+    image_provider = FakeImageProvider(
+        [f"take-{i}".encode() for i in range(MAX_AUTO_RETAKE_ATTEMPTS + 1)]
+    )
+    router = MediaProviderRouter([image_provider])
+    with pytest.raises(QCGateBlockedError):
+        await service.generate_with_auto_heal(
+            storyboard.id, "PROJ_1", _request(), router, AutomaticRetakeService()
+        )
+    await session.commit()
+
+    final = await service.get(storyboard.id)
+    assert final.status == "draft"
+    assert final.escalated is True
+    assert final.auto_retake_attempts == MAX_AUTO_RETAKE_ATTEMPTS + 1
+
+    takes = await service.list_keyframes("PROJ_1", storyboard)
+    assert len(takes) == MAX_AUTO_RETAKE_ATTEMPTS + 1
+    assert all(t.status.value == "rejected" for t in takes)

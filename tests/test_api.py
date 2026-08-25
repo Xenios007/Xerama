@@ -461,6 +461,40 @@ async def test_storyboard_keyframe_accept_blocked_by_qc_gate(client: httpx.Async
 
 
 @pytest.mark.asyncio
+async def test_storyboard_keyframe_auto_heal_repairs_then_succeeds(client: httpx.AsyncClient) -> None:
+    """MODULE-045 - the /keyframes/auto-heal endpoint retries through a
+    QC BLOCK automatically and returns the eventually-accepted take."""
+    from xerama.domain.enums import QCStatus
+    from xerama.domain.quality import QCResult
+
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    created_storyboard = await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/storyboard")
+    storyboard_id = created_storyboard.json()["id"]
+
+    client.fake_image_provider.queue(b"take-1")
+    client.fake_image_provider.queue(b"take-2")
+    client.fake_media_qc_provider.queue(
+        QCResult(gate="composition", status=QCStatus.BLOCK, score=0.0, reasons=["crowded frame"])
+    )
+    healed = await client.post(f"/storyboards/{storyboard_id}/keyframes/auto-heal")
+    assert healed.status_code == 200, healed.text
+    asset = healed.json()
+    assert asset["take_number"] == 2
+
+    storyboard = await client.get(f"/storyboards/{storyboard_id}")
+    assert storyboard.json()["status"] == "approved"
+    assert storyboard.json()["auto_retake_attempts"] == 1
+    assert storyboard.json()["escalated"] is False
+
+
+@pytest.mark.asyncio
 async def test_storyboard_keyframe_reject_and_manual_upload_retry(client: httpx.AsyncClient) -> None:
     created = await client.post("/projects", json={"name": "Trial 01"})
     project_id = created.json()["id"]

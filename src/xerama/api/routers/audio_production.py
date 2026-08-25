@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from xerama.api.deps import (
     get_audio_production_service,
     get_episode_repo,
+    get_retake_service,
     get_series_repo,
     get_voice_router,
 )
@@ -17,6 +18,7 @@ from xerama.repositories.interfaces import EpisodeRepository, SeriesRepository
 from xerama.services.audio_production_service import AudioProductionService
 from xerama.services.media_qc_service import QCGateBlockedError
 from xerama.services.media_router import MediaProviderRouter, NoEligibleProviderError
+from xerama.services.retake_service import AutomaticRetakeService
 
 router = APIRouter(tags=["audio-production"])
 
@@ -100,6 +102,48 @@ async def generate_dialogue_take(
         )
     except NoEligibleProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/audio-productions/{production_id}/takes/auto-heal", response_model=Asset)
+async def generate_dialogue_take_with_auto_heal(
+    production_id: str,
+    body: DialogueTakeRequest,
+    service: AudioProductionService = Depends(get_audio_production_service),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    voice_router: MediaProviderRouter[VoiceProvider] = Depends(get_voice_router),
+    retake_service: AutomaticRetakeService = Depends(get_retake_service),
+) -> Asset:
+    """MODULE-045 - see storyboards.py's `generate_keyframe_with_auto_heal`;
+    same generate -> QC-gate -> repair-and-retry loop for dialogue takes."""
+    try:
+        production = await service.get(production_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    episode, series = await episode_context(production.episode_id, episode_repo, series_repo)
+    text = body.text
+    if text is None:
+        plan = await episode_repo.get_shot_plan(production.episode_id)
+        if plan is None:
+            raise HTTPException(status_code=409, detail="episode has no shot plan yet")
+        _, shot = find_shot(plan, production.scene_number, production.shot_number)
+        text = shot.dialogue
+        if not text:
+            raise HTTPException(
+                status_code=422, detail="shot has no scripted dialogue - pass text explicitly"
+            )
+
+    try:
+        asset, _ = await service.generate_with_auto_heal(
+            production_id, series.project_id, body.character_id, text, voice_router, retake_service,
+            series_id=episode.series_id,
+        )
+        return asset
+    except NoEligibleProviderError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except QCGateBlockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/audio-productions/{production_id}/takes/upload", response_model=Asset)

@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-044 (Multimodal QC)._
+_Last updated: 2026-08-25 - MODULE-045 (Automatic Retakes)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1064,6 +1064,62 @@ own.
   documented as pending, matching every other deferred real media
   provider in this codebase.
 
+### MODULE-045 - Automatic Retakes
+
+- **`RepairAction`** (`domain/enums.py`) - stronger_references/prompt_repair/
+  alternate_provider/full_retake/escalate, in escalation-priority order.
+  **`pipeline/retake_policy.py:classify_repair_action`** - deterministic
+  dimension-keyword heuristic (same precedent as `pipeline/canon_commit.py`/
+  `pipeline/sfx_derivation.py` - no LLM call): IDENTITY/STYLE BLOCK ->
+  stronger references; COMPOSITION/CONTINUITY/MOTION BLOCK -> prompt
+  repair; MEDIA_HEALTH BLOCK -> alternate provider; anything else -> full
+  retake.
+- **`AutomaticRetakeService`** (`services/retake_service.py`) - pure
+  policy, no provider/generation-request coupling: `plan_repair(attempts,
+  prior_attempt_count)` returns a `RepairPlan` (action + reasons),
+  returning `ESCALATE` once `prior_attempt_count >= MAX_AUTO_RETAKE_ATTEMPTS`
+  (3, module-level constant - "enforce retry/cost limits" per the same
+  override-later precedent as every other threshold in this codebase).
+- **Per-production attempt bookkeeping** - `Storyboard`/
+  `ShotVideoProduction`/`ShotAudioProduction` gain `auto_retake_attempts`
+  (never reset) and `escalated`; `*Repository.record_retake_attempt`
+  increments/sets them. Migration:
+  `alembic/versions/b2c3d4e5f6a7_add_auto_retake_fields.py`.
+- **`generate_with_auto_heal`** added to `StoryboardService`/
+  `VideoProductionService`/`AudioProductionService` - generate -> QC-gate
+  (MODULE-044) -> on `QCGateBlockedError`, record the attempt, explicitly
+  **reject** the failed take with the QC reasons (never silently abandoned
+  - ADR-019), then either re-raise (`ESCALATE`, storyboard/production
+  marked `escalated`) or adjust the next `generate_*` call and loop:
+  `min_reference_images` (image keyframes only - the one place a
+  provider's `max_reference_images` can truncate a compiled reference set,
+  so "stronger refs" has a real distinct lever there), a QC-reasons suffix
+  appended to `negative_prompt` (prompt repair, image + video), or an
+  `excluded_providers` set that forces the router to try a different
+  provider (alternate provider, all three types). Video's
+  STRONGER_REFERENCES and audio's every-dimension-but-media_health map to
+  a plain unmodified retry - documented rather than faked, since neither
+  path truncates/has a reference set the way image keyframes do.
+- **API** - `POST /storyboards/{id}/keyframes/auto-heal`,
+  `POST /video-productions/{id}/takes/auto-heal`,
+  `POST /audio-productions/{id}/takes/auto-heal` - same setup as their
+  `/generate` siblings, routed through `generate_with_auto_heal`;
+  `QCGateBlockedError` -> 409 (budget exhausted, same as MODULE-044's
+  direct-accept 409, but the production record is now also `escalated`).
+- Acceptance criterion met: a QC BLOCK that maps to a known repair (bad
+  framing, weak identity match, a flaky provider) self-heals within a
+  bounded number of attempts without touching any other shot's takes or
+  requiring a human in the loop, while every failed take stays in the
+  database with its rejection reason, and a genuinely unfixable failure
+  stops looping and surfaces for human review (`escalated=True`,
+  `GET /storyboards|video-productions|audio-productions/{id}`) - verified
+  by 11 policy unit tests (every classification branch, budget/escalation
+  edges) plus one integration test per production service (block ->
+  automatic repair -> succeed, with the adjusted request/provider/rejected
+  take all asserted) plus one full-budget-exhaustion -> escalation test
+  plus one API-level end-to-end test, and the full existing suite (424
+  tests) staying green unmodified in behavior.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1088,12 +1144,11 @@ own.
   real `ffmpeg` last-frame extraction verification - the contracts/
   router/registries/fake implementations these will plug into already
   exist (MODULE-006/007/029/032/034/036/044).
-- Automatic retakes (MODULE-045, now unblocked - depends on 030/043/044,
-  all now complete), FFmpeg assembly/versioning/export (MODULE-046-048),
-  cost/observability (MODULE-049-050), remaining APIs/frontend
-  (MODULE-051-060), analytics/learning (MODULE-061-065), security/
-  deployment/hardening (MODULE-066-070), testing/eval frameworks
-  (MODULE-071-076), backup/migration/docs/release (MODULE-077-080).
+- FFmpeg assembly/versioning/export (MODULE-046-048), cost/observability
+  (MODULE-049-050), remaining APIs/frontend (MODULE-051-060), analytics/
+  learning (MODULE-061-065), security/deployment/hardening
+  (MODULE-066-070), testing/eval frameworks (MODULE-071-076), backup/
+  migration/docs/release (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
 - See `modules/README.md` for the full authoritative MODULE-001..080 queue.

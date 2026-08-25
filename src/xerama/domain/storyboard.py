@@ -20,3 +20,9 @@ class Storyboard(BaseModel):
     status: str = "draft"  # draft | approved
     layout_description: str = ""
     approved_keyframe_asset_id: str | None = None
+    # MODULE-045 - automatic-retake bookkeeping. `auto_retake_attempts`
+    # counts every repair attempt ever made (never reset - "enforce
+    # retry/cost limits"); `escalated` is set once the budget is
+    # exhausted so a human reviewer can find it.
+    auto_retake_attempts: int = 0
+    escalated: bool = False

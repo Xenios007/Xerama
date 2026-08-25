@@ -23,3 +23,6 @@ class ShotVideoProduction(BaseModel):
     status: str = "draft"  # draft | approved
     approved_take_asset_id: str | None = None
     extracted_last_frame_asset_id: str | None = None
+    # MODULE-045 - see domain/storyboard.py's identical fields.
+    auto_retake_attempts: int = 0
+    escalated: bool = False

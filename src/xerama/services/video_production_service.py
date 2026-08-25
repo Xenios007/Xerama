@@ -28,7 +28,7 @@ take, and rejecting it never corrupts either source.
 """
 
 from xerama.domain.asset import Asset, AssetOwnership, AssetProvenance, AssetType
-from xerama.domain.enums import MediaQCDimension
+from xerama.domain.enums import MediaQCDimension, RepairAction
 from xerama.domain.generation_request import ShotGenerationRequest
 from xerama.domain.scene import SceneBlocking
 from xerama.domain.video_production import ShotVideoProduction
@@ -38,8 +38,9 @@ from xerama.providers.media_qc import MediaQCContext
 from xerama.providers.video import VideoGenerationRequest, VideoProvider, matches_requirements
 from xerama.repositories.interfaces import VideoProductionRepository
 from xerama.services.asset_service import AssetService
-from xerama.services.media_qc_service import MediaQCService
+from xerama.services.media_qc_service import MediaQCService, QCGateBlockedError
 from xerama.services.media_router import MediaProviderRouter
+from xerama.services.retake_service import AutomaticRetakeService
 
 
 class ContinuityOrderingError(ValueError):
@@ -96,8 +97,12 @@ class VideoProductionService:
         video_router: MediaProviderRouter[VideoProvider],
         keyframe_bytes: bytes | None = None,
         series_id: str | None = None,
+        excluded_providers: set[str] | None = None,
     ) -> Asset:
+        """`excluded_providers` is a MODULE-045 auto-heal lever
+        (ALTERNATE_PROVIDER) - defaults to "no restriction"."""
         production = await self.get(production_id)
+        excluded_providers = excluded_providers or set()
         first_frame = keyframe_bytes
 
         if production.continuity_group:
@@ -134,6 +139,8 @@ class VideoProductionService:
             reference_images.append(await self._asset_service.read_bytes(asset_id))
 
         def is_compatible(provider: VideoProvider) -> bool:
+            if provider.name in excluded_providers:
+                return False
             return matches_requirements(
                 provider.capabilities,
                 request.provider_requirements,
@@ -346,6 +353,65 @@ class VideoProductionService:
         `upload_take` call is the retry. Never overwrites/deletes the
         rejected take (ADR-019)."""
         return await self._asset_service.reject(asset_id, reason)
+
+    async def generate_with_auto_heal(
+        self,
+        production_id: str,
+        project_id: str,
+        request: ShotGenerationRequest,
+        video_router: MediaProviderRouter[VideoProvider],
+        retake_service: AutomaticRetakeService,
+        keyframe_bytes: bytes | None = None,
+        series_id: str | None = None,
+        character_reference_ids: list[str] | None = None,
+    ) -> tuple[Asset, ShotVideoProduction]:
+        """MODULE-045 - see `StoryboardService.generate_with_auto_heal`;
+        same generate -> QC-gate -> repair-and-retry loop, bounded by
+        `AutomaticRetakeService`'s attempt budget. STRONGER_REFERENCES has
+        no distinct lever here (video takes never truncate their reference
+        set, unlike image keyframes bounded by a provider's
+        `max_reference_images`) so it retries unchanged, same as
+        FULL_RETAKE."""
+        excluded_providers: set[str] = set()
+        current_request = request
+        while True:
+            asset = await self.generate_take(
+                production_id,
+                project_id,
+                current_request,
+                video_router,
+                keyframe_bytes=keyframe_bytes,
+                series_id=series_id,
+                excluded_providers=excluded_providers,
+            )
+            try:
+                approved = await self.accept_take(
+                    production_id, asset.id, character_reference_ids=character_reference_ids
+                )
+                return asset, approved
+            except QCGateBlockedError as exc:
+                production = await self.get(production_id)
+                plan = retake_service.plan_repair(exc.attempts, production.auto_retake_attempts)
+                await self._production_repo.record_retake_attempt(
+                    production_id, escalated=(plan.action == RepairAction.ESCALATE)
+                )
+                await self.reject_take(
+                    asset.id, f"MODULE-045 auto-heal ({plan.action.value}): {'; '.join(plan.reasons)}"
+                )
+                if plan.action == RepairAction.ESCALATE:
+                    raise
+                if plan.action == RepairAction.PROMPT_REPAIR:
+                    suffix = "; ".join(plan.reasons)
+                    current_request = current_request.model_copy(
+                        update={
+                            "negative_prompt": (current_request.negative_prompt + f"; avoid: {suffix}").strip(
+                                "; "
+                            )
+                        }
+                    )
+                elif plan.action == RepairAction.ALTERNATE_PROVIDER:
+                    excluded_providers.add(asset.provenance.provider)
+                # STRONGER_REFERENCES / FULL_RETAKE: no adjustment, just try again.
 
     async def list_takes(self, project_id: str, production: ShotVideoProduction) -> list[Asset]:
         return await self._asset_service.list_by_ownership(

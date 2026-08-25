@@ -6,7 +6,7 @@ later without touching story/production logic (ADR-021).
 """
 
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -16,8 +16,27 @@ class Base(DeclarativeBase):
     pass
 
 
+_last_utcnow: datetime | None = None
+
+
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """Real UTC wall-clock time, but strictly increasing within this
+    process - some platforms' clock resolution (observed on Windows) is
+    coarse enough that two `created_at` defaults evaluated microseconds
+    apart (e.g. two rows inserted in the same request) can come back
+    identical, which silently breaks any code that orders by `created_at`
+    to recover insertion order (e.g. `JobRepository.claim`'s FIFO
+    tie-break, `MediaQCRepository.get_latest`). Nudging by a microsecond
+    when the clock hasn't visibly advanced keeps every timestamp real and
+    monotonic without a schema change; true cross-process ordering still
+    needs a DB-side sequence, which is out of scope for a single-process
+    Trial 01 deployment."""
+    global _last_utcnow
+    now = datetime.now(timezone.utc)
+    if _last_utcnow is not None and now <= _last_utcnow:
+        now = _last_utcnow + timedelta(microseconds=1)
+    _last_utcnow = now
+    return now
 
 
 def make_engine(database_url: str):

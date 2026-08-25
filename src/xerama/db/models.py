@@ -466,6 +466,8 @@ class Storyboard(Base):
     status: Mapped[str] = mapped_column(String(16), default="draft")
     layout_description: Mapped[str] = mapped_column(Text, default="")
     approved_keyframe_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    auto_retake_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    escalated: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
@@ -483,6 +485,8 @@ class ShotVideoProduction(Base):
     status: Mapped[str] = mapped_column(String(16), default="draft")
     approved_take_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     extracted_last_frame_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    auto_retake_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    escalated: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
@@ -518,6 +522,8 @@ class ShotAudioProduction(Base):
     audio_mode: Mapped[str] = mapped_column(String(16), default="native")
     status: Mapped[str] = mapped_column(String(16), default="draft")
     approved_take_asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    auto_retake_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    escalated: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
