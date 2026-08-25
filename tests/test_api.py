@@ -1260,3 +1260,106 @@ async def test_story_studio_inspection_endpoints(client: httpx.AsyncClient) -> N
 
     canon = await client.get(f"/series/{series_id}/canon-events")
     assert canon.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_analytics_ingestion_and_retention_endpoints(client: httpx.AsyncClient) -> None:
+    """MODULE-061/062 - import metrics for the published episode version
+    and read back a retention summary."""
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    imported = await client.post(
+        f"/episodes/{episode1_id}/metrics/import",
+        json={
+            "render_version": 1,
+            "source": "manual_import",
+            "observation_window_start": "2026-08-01T00:00:00Z",
+            "observation_window_end": "2026-08-08T00:00:00Z",
+            "payload": {"views": 1000, "completion_rate": 0.65},
+        },
+    )
+    assert imported.status_code == 200, imported.text
+    assert imported.json()["views"] == 1000
+
+    listed = await client.get(f"/episodes/{episode1_id}/metrics")
+    assert len(listed.json()) == 1
+
+    summary = await client.get(f"/episodes/{episode1_id}/retention-summary")
+    assert summary.status_code == 200
+    assert summary.json()["avg_completion_rate"] == 0.65
+
+    drop_points = await client.get(f"/episodes/{episode1_id}/retention-drop-points")
+    assert drop_points.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_story_performance_endpoint_empty_without_enough_data(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    series_id = generated.json()["series_id"]
+
+    response = await client.get(f"/series/{series_id}/story-performance")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_provider_rankings_endpoint(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+
+    storyboard_id = (
+        await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/storyboard")
+    ).json()["id"]
+    client.fake_image_provider.queue(b"keyframe bytes")
+    keyframe = (await client.post(f"/storyboards/{storyboard_id}/keyframes/generate")).json()
+    await client.post(f"/storyboards/{storyboard_id}/keyframes/{keyframe['id']}/accept")
+
+    rankings = await client.get(f"/projects/{project_id}/provider-rankings", params={"objective": "balanced"})
+    assert rankings.status_code == 200
+    assert len(rankings.json()) >= 1
+    assert rankings.json()[0]["accepted_rate"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_human_feedback_endpoints(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    episode1_id = generated.json()["episode1_id"]
+    storyboard_id = (
+        await client.post(f"/episodes/{episode1_id}/scenes/1/shots/1/storyboard")
+    ).json()["id"]
+    client.fake_image_provider.queue(b"keyframe bytes")
+    keyframe = (await client.post(f"/storyboards/{storyboard_id}/keyframes/generate")).json()
+
+    feedback = await client.post(
+        f"/assets/{keyframe['id']}/feedback",
+        json={"decision": "rejected", "reason": "face looks off", "rating": 2, "tags": ["identity"]},
+    )
+    assert feedback.status_code == 200, feedback.text
+    assert feedback.json()["provider"] == "fake_image"
+
+    by_asset = await client.get(f"/assets/{keyframe['id']}/feedback")
+    assert len(by_asset.json()) == 1
+
+    by_project = await client.get(f"/projects/{project_id}/feedback")
+    assert len(by_project.json()) == 1

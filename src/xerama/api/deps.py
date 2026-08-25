@@ -28,8 +28,10 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyCostRecordRepository,
     SQLAlchemyEpisodeRenderRepository,
     SQLAlchemyEpisodeRepository,
+    SQLAlchemyHumanFeedbackRepository,
     SQLAlchemyJobRepository,
     SQLAlchemyMediaQCRepository,
+    SQLAlchemyMetricsRepository,
     SQLAlchemyMusicCueRepository,
     SQLAlchemyProjectRepository,
     SQLAlchemySeasonRepository,
@@ -45,11 +47,18 @@ from xerama.services.assembly_service import EpisodeAssemblyService
 from xerama.services.asset_service import AssetService
 from xerama.services.audio_production_service import AudioProductionService
 from xerama.services.character_casting_service import CharacterCastingService
+from xerama.services.analytics_service import (
+    AnalyticsIngestionService,
+    RetentionAnalyticsService,
+    StoryPerformanceLearningService,
+)
 from xerama.services.cost_service import CostRecordService
 from xerama.services.export_service import VerticalExportService
+from xerama.services.feedback_service import HumanFeedbackService
 from xerama.services.observability_service import ObservabilityService
 from xerama.services.media_qc_service import MediaQCService
 from xerama.services.music_cue_service import MusicCueService
+from xerama.services.optimization_service import OptimizationService
 from xerama.services.retake_service import AutomaticRetakeService
 from xerama.services.sound_effect_service import SoundEffectCueService
 from xerama.services.storyboard_service import StoryboardService
@@ -107,6 +116,41 @@ def get_retake_service() -> AutomaticRetakeService:
 
 def get_cost_service(session: AsyncSession = Depends(get_session)) -> CostRecordService:
     return CostRecordService(repo=SQLAlchemyCostRecordRepository(session))
+
+
+def get_analytics_service(session: AsyncSession = Depends(get_session)) -> AnalyticsIngestionService:
+    return AnalyticsIngestionService(repo=SQLAlchemyMetricsRepository(session))
+
+
+def get_retention_service(session: AsyncSession = Depends(get_session)) -> RetentionAnalyticsService:
+    return RetentionAnalyticsService(
+        metrics_repo=SQLAlchemyMetricsRepository(session),
+        episode_repo=SQLAlchemyEpisodeRepository(session),
+    )
+
+
+def get_story_performance_service(
+    session: AsyncSession = Depends(get_session),
+) -> StoryPerformanceLearningService:
+    return StoryPerformanceLearningService(
+        metrics_repo=SQLAlchemyMetricsRepository(session),
+        episode_repo=SQLAlchemyEpisodeRepository(session),
+    )
+
+
+def get_optimization_service(session: AsyncSession = Depends(get_session)) -> OptimizationService:
+    return OptimizationService(
+        cost_repo=SQLAlchemyCostRecordRepository(session),
+        qc_repo=SQLAlchemyMediaQCRepository(session),
+        asset_repo=SQLAlchemyAssetRepository(session),
+    )
+
+
+def get_feedback_service(session: AsyncSession = Depends(get_session)) -> HumanFeedbackService:
+    return HumanFeedbackService(
+        repo=SQLAlchemyHumanFeedbackRepository(session),
+        asset_repo=SQLAlchemyAssetRepository(session),
+    )
 
 
 def get_observability_service(

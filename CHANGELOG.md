@@ -4,6 +4,31 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-061-065 - Analytics Ingestion, Retention Analytics, Story
+Performance Learning, Provider/Model Optimization, Human Feedback)
+
+- `EpisodeMetric`/`HumanFeedback` domain models + tables
+  (`episode_metrics`, `human_feedback`, revision `e5f6a7b8c9d0`).
+- MODULE-061: manual-payload metrics ingestion, idempotent upsert keyed
+  on (episode, render_version, source, window).
+- MODULE-062: `summarize_retention` (averages only present values) +
+  `map_drop_points_to_shots` (platform drop-off timestamps mapped onto
+  the specific scene/shot on screen via the shared cumulative-offset
+  shot-timeline walk).
+- MODULE-063: `analyze_cliffhanger_performance` - cliffhanger-type vs.
+  retention correlation, suppressed below a documented minimum sample
+  size (3), read-only/advisory, never auto-rewrites story decisions.
+- MODULE-064: `rank_providers` - composite provider/model ranking from
+  real cost/QC/acceptance data across 4 objectives
+  (quality/budget/speed/balanced) per ADR-024; `MediaQCRepository.list_by_assets`
+  added (bulk, no N+1).
+- MODULE-065: human feedback (decision/reason/rating/tags) with
+  provider/model denormalized from asset provenance at write time.
+- New endpoints: metrics import/list, retention summary/drop-points,
+  story-performance, provider-rankings, asset/project feedback.
+- 31 new tests (11 + 6 + 4 + 6 pipeline/service/repository + 4 API);
+  full suite green (541 passed, up from 510).
+
 ### Added (MODULE-060 - Review/Approval Studio) - frontend (MODULE-055-060) complete
 
 - `AssetRepository.list_by_ownership`/`GET /assets` gain a `status`

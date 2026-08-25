@@ -628,3 +628,48 @@ class CostRecord(Base):
     asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     failure_reason: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class EpisodeMetric(Base):
+    """See MODULE-061. One row per (episode, render_version, source,
+    observation_window) - `MetricsRepository.upsert` updates the matching
+    row rather than accumulating duplicates on re-import."""
+
+    __tablename__ = "episode_metrics"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    episode_id: Mapped[str] = mapped_column(ForeignKey("episodes.id"), index=True)
+    render_version: Mapped[int] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(String(64), index=True)
+    observation_window_start: Mapped[datetime] = mapped_column()
+    observation_window_end: Mapped[datetime] = mapped_column()
+    impressions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    views: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg_watch_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    completion_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    three_second_retention_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rewatch_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    continuation_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    engagement: Mapped[dict] = mapped_column(JSON, default=dict)
+    raw_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    imported_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class HumanFeedback(Base):
+    """See MODULE-065. Append-only - every review decision is its own
+    row, never overwritten, so feedback history survives a later
+    re-review."""
+
+    __tablename__ = "human_feedback"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    asset_id: Mapped[str] = mapped_column(String(32), index=True)
+    project_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    decision: Mapped[str] = mapped_column(String(32))  # approved | rejected | retake_requested | edited
+    reason: Mapped[str] = mapped_column(Text, default="")
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    reviewer: Mapped[str] = mapped_column(String(128), default="")
+    provider: Mapped[str] = mapped_column(String(64), default="")
+    model: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)

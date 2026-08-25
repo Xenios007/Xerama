@@ -17,8 +17,10 @@ from xerama.domain.brief import CreativeBrief
 from xerama.domain.canon import CanonEvent
 from xerama.domain.character import Character, CharacterCast, PhysicalStateVariant, WardrobeVariant
 from xerama.domain.episode import EpisodeOutline, EpisodeScript
+from xerama.domain.analytics import EpisodeMetric
 from xerama.domain.cost import CostRecord
 from xerama.domain.episode_render import EpisodeRender
+from xerama.domain.feedback import HumanFeedback
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
 from xerama.domain.quality import QCResult
@@ -620,6 +622,11 @@ class MediaQCRepository(Protocol):
         self, asset_id: str, dimension: MediaQCDimension
     ) -> MediaQCAttempt | None: ...
 
+    async def list_by_assets(self, asset_ids: list[str]) -> list[MediaQCAttempt]:
+        """See MODULE-064 - one bulk `IN` query for provider ranking
+        instead of N+1 per-asset lookups."""
+        ...
+
 
 class EpisodeRenderRepository(Protocol):
     """See MODULE-047. Every `create` call inserts a new, immutable
@@ -676,3 +683,51 @@ class CostRecordRepository(Protocol):
     async def list_by_project(self, project_id: str) -> list[CostRecord]: ...
 
     async def list_by_episode(self, episode_id: str) -> list[CostRecord]: ...
+
+
+class MetricsRepository(Protocol):
+    """See MODULE-061. `upsert` is keyed on
+    (episode_id, render_version, source, observation_window_start,
+    observation_window_end) - re-importing the same window updates that
+    row rather than accumulating duplicates ("deduplication")."""
+
+    async def upsert(
+        self,
+        episode_id: str,
+        render_version: int,
+        source: str,
+        observation_window_start: datetime,
+        observation_window_end: datetime,
+        raw_payload: dict,
+        impressions: int | None = None,
+        views: int | None = None,
+        avg_watch_seconds: float | None = None,
+        completion_rate: float | None = None,
+        three_second_retention_rate: float | None = None,
+        rewatch_rate: float | None = None,
+        continuation_rate: float | None = None,
+        engagement: dict | None = None,
+    ) -> EpisodeMetric: ...
+
+    async def list_by_episode(self, episode_id: str) -> list[EpisodeMetric]: ...
+
+
+class HumanFeedbackRepository(Protocol):
+    """See MODULE-065. Append-only."""
+
+    async def create(
+        self,
+        asset_id: str,
+        decision: str,
+        project_id: str | None = None,
+        reason: str = "",
+        rating: int | None = None,
+        tags: list[str] | None = None,
+        reviewer: str = "",
+        provider: str = "",
+        model: str = "",
+    ) -> HumanFeedback: ...
+
+    async def list_by_asset(self, asset_id: str) -> list[HumanFeedback]: ...
+
+    async def list_by_project(self, project_id: str) -> list[HumanFeedback]: ...

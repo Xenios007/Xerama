@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-060 (Review/Approval Studio) - frontend (MODULE-055-060) complete._
+_Last updated: 2026-08-25 - MODULE-061-065 (Analytics Ingestion, Retention Analytics, Story Performance Learning, Provider Optimization, Human Feedback)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1653,6 +1653,103 @@ surface built across earlier modules, not new subsystems.
   approval decision is a backend call), `typecheck`/`lint`/`build` clean
   throughout this entire module range.
 
+### MODULE-061-065 - Analytics Ingestion, Retention Analytics, Story Performance Learning,
+Provider/Model Optimization, Human Feedback System
+
+Built together as one cohesive delivery - they form a strict linear
+dependency chain (062 reads what 061 ingests, 063 reads what 062
+summarizes, 064 is a sibling read of existing cost/QC data, 065 is
+semi-independent), matching the precedent set by MODULE-041-043 and
+MODULE-046-048.
+
+- **`EpisodeMetric` domain model** (`domain/analytics.py`) - one row per
+  (episode, render_version, source, observation_window); every
+  normalized field (`views`, `completion_rate`,
+  `three_second_retention_rate`, `rewatch_rate`, `continuation_rate`,
+  `avg_watch_seconds`, `impressions`) is `Optional` and a raw
+  `engagement: dict` plus `raw_payload: dict` preserve whatever a
+  platform actually reported - "never invent unavailable metrics"
+  applies here exactly as it does to cost/QC data elsewhere.
+- **MODULE-061 - Analytics Ingestion** - `normalize_manual_payload`
+  (pure function, `pipeline/metrics_normalization.py`) maps an arbitrary
+  payload dict onto the known fields, dropping anything unrecognized
+  rather than guessing a mapping; `AnalyticsIngestionService.import_metrics`
+  persists via `SQLAlchemyMetricsRepository.upsert`, keyed on the exact
+  (episode_id, render_version, source, window) tuple so re-importing the
+  same window updates in place instead of accumulating duplicate rows -
+  verified idempotent by `test_metrics_upsert_is_idempotent_on_the_same_window`.
+  No real platform API (TikTok/YouTube/etc.) is credentialed yet, so
+  `source` defaults to `"manual_import"`; the contract is
+  provider-agnostic so a real scheduled importer can call the same
+  `import_metrics` later without a schema change.
+- **MODULE-062 - Retention Analytics** - `summarize_retention` (pure,
+  `pipeline/retention_analytics.py`) averages each normalized field only
+  across metrics where it is actually present (`None` stays `None` if
+  zero samples have it - no fabricated zeros); `map_drop_points_to_shots`
+  reuses the cumulative-offset shot-timeline walk already established for
+  subtitles/assembly to convert a platform's raw
+  `raw_payload["drop_points"]` timestamps into the specific scene/shot
+  that was on screen when viewers left, silently skipping any timestamp
+  past the episode's own runtime rather than raising - "which shot
+  causes drop-off" needs an approximate mapping since platform
+  timestamps and internal shot timing are never perfectly synced.
+- **MODULE-063 - Story Performance Learning** - `analyze_cliffhanger_performance`
+  (pure, `pipeline/story_performance.py`) groups episodes by
+  `Cliffhanger.type` (the one story-structure signal that is actually
+  persisted today - `QualityScore`'s hook/reversal/emotional_intensity
+  fields are modeled in `domain/episode.py` but never populated by any
+  pipeline stage, so no attempt is made to correlate against them, per
+  "never invent unavailable metrics") and suppresses any group below
+  `MIN_SAMPLE_THRESHOLD = 3` - "surface a pattern" without a documented
+  minimum sample size makes a false claim look statistically real, which
+  ADR-018's pass/warn/block-with-reasons discipline for QC applies to
+  analytics too. Confidence is `"medium"` at 3-9 samples, `"high"` at
+  10+; the service is read-only/advisory - it never writes back to
+  `Cliffhanger` or any other row, matching "learning surfaces
+  recommendations, it does not auto-rewrite story decisions."
+- **MODULE-064 - Provider/Model Optimization** - `rank_providers` (pure,
+  `pipeline/provider_ranking.py`) groups existing `CostRecord`s by
+  (provider, stage) and computes, per ADR-024, `accepted_rate` from all
+  attempts against the accepted-asset set, `avg_cost_usd` from only
+  cost-known records, `avg_latency_ms`, and (when QC history exists for
+  the assets) `avg_qc_score`; each component normalizes to 0-1 and
+  combines into a weighted `composite_score` under one of four
+  objectives (`quality`/`budget`/`speed`/`balanced`) - switching
+  objective demonstrably reorders providers
+  (`test_rank_providers_objective_changes_ranking`). A component with no
+  data contributes 0 to the weighted sum but is reported as `None`
+  (never a fabricated value) in the API response.
+  `OptimizationService` wires this to real `CostRecordRepository`/
+  `MediaQCRepository.list_by_assets` (new bulk method, avoids N+1)/
+  `AssetRepository` data - no synthetic fixtures.
+- **MODULE-065 - Human Feedback System** - `HumanFeedback` domain model
+  (`domain/feedback.py`): `decision` (approved/rejected/retake_requested/
+  edited), optional `reason`/`rating` (1-5)/`tags`/`reviewer`, with
+  `provider`/`model` denormalized from the asset's `AssetProvenance` at
+  write time so feedback stays queryable/joinable to provider
+  performance (MODULE-064) even if the asset itself is later superseded
+  per ADR-019. `HumanFeedbackService.record` raises on an unknown
+  `asset_id` rather than silently creating an orphan feedback row.
+- **New tables** (`episode_metrics`, `human_feedback`) via Alembic
+  revision `e5f6a7b8c9d0` (chains cleanly from `d4e5f6a7b8c9`, single
+  head verified, applied to and rolled back from a scratch db).
+- **New endpoints**: `POST/GET /episodes/{id}/metrics`,
+  `GET /episodes/{id}/retention-summary`,
+  `GET /episodes/{id}/retention-drop-points`,
+  `GET /series/{id}/story-performance`,
+  `GET /projects/{id}/provider-rankings?objective=`,
+  `POST/GET /assets/{id}/feedback`, `GET /projects/{id}/feedback`.
+- Acceptance criteria met: ingested metrics normalize and persist
+  idempotently; retention summaries and drop-point-to-shot mapping never
+  fabricate missing data; story-performance insights are suppressed
+  below a documented minimum sample size; provider rankings shift
+  correctly across all four objectives using only real cost/QC/asset
+  data; human feedback round-trips with denormalized provenance -
+  verified by 31 new tests (`test_analytics.py` 11, `test_provider_ranking.py`
+  6, `test_metrics_and_feedback_repository.py` 4, `test_analytics_service.py`
+  6, plus 4 new `test_api.py` cases) - full suite green (541 passed, up
+  from 510).
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1678,9 +1775,8 @@ surface built across earlier modules, not new subsystems.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Analytics/learning (MODULE-061-065), security/deployment/hardening
-  (MODULE-066-070), testing/eval frameworks (MODULE-071-076),
-  backup/migration/docs/release
+- Security/deployment/hardening (MODULE-066-070), testing/eval
+  frameworks (MODULE-071-076), backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).

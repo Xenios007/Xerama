@@ -26,8 +26,10 @@ from xerama.domain.episode import EpisodeOutline, EpisodeScript
 from xerama.domain.quality import QCResult
 from xerama.domain.scene import EpisodeShotPlan, Scene as SceneDTO, Shot as ShotDTO
 from xerama.domain.audio_production import ShotAudioProduction
+from xerama.domain.analytics import EpisodeMetric
 from xerama.domain.cost import CostRecord
 from xerama.domain.episode_render import EpisodeRender
+from xerama.domain.feedback import HumanFeedback
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
 from xerama.domain.rights import RightsMetadata
@@ -1964,6 +1966,14 @@ class SQLAlchemyMediaQCRepository:
         row = result.scalars().first()
         return _media_qc_attempt(row) if row is not None else None
 
+    async def list_by_assets(self, asset_ids: list[str]) -> list[MediaQCAttempt]:
+        if not asset_ids:
+            return []
+        result = await self._session.execute(
+            select(m.MediaQCAttempt).where(m.MediaQCAttempt.asset_id.in_(asset_ids))
+        )
+        return [_media_qc_attempt(row) for row in result.scalars()]
+
 
 def _episode_render(row: m.EpisodeRender) -> EpisodeRender:
     return EpisodeRender(
@@ -2130,3 +2140,149 @@ class SQLAlchemyCostRecordRepository:
             .order_by(m.CostRecord.created_at)
         )
         return [_cost_record(row) for row in result.scalars()]
+
+
+def _episode_metric(row: m.EpisodeMetric) -> EpisodeMetric:
+    return EpisodeMetric(
+        id=row.id,
+        episode_id=row.episode_id,
+        render_version=row.render_version,
+        source=row.source,
+        observation_window_start=row.observation_window_start,
+        observation_window_end=row.observation_window_end,
+        impressions=row.impressions,
+        views=row.views,
+        avg_watch_seconds=row.avg_watch_seconds,
+        completion_rate=row.completion_rate,
+        three_second_retention_rate=row.three_second_retention_rate,
+        rewatch_rate=row.rewatch_rate,
+        continuation_rate=row.continuation_rate,
+        engagement=row.engagement,
+        raw_payload=row.raw_payload,
+        imported_at=row.imported_at,
+    )
+
+
+class SQLAlchemyMetricsRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def upsert(
+        self,
+        episode_id: str,
+        render_version: int,
+        source: str,
+        observation_window_start: datetime,
+        observation_window_end: datetime,
+        raw_payload: dict,
+        impressions: int | None = None,
+        views: int | None = None,
+        avg_watch_seconds: float | None = None,
+        completion_rate: float | None = None,
+        three_second_retention_rate: float | None = None,
+        rewatch_rate: float | None = None,
+        continuation_rate: float | None = None,
+        engagement: dict | None = None,
+    ) -> EpisodeMetric:
+        result = await self._session.execute(
+            select(m.EpisodeMetric).where(
+                m.EpisodeMetric.episode_id == episode_id,
+                m.EpisodeMetric.render_version == render_version,
+                m.EpisodeMetric.source == source,
+                m.EpisodeMetric.observation_window_start == observation_window_start,
+                m.EpisodeMetric.observation_window_end == observation_window_end,
+            )
+        )
+        row = result.scalars().first()
+        if row is None:
+            row = m.EpisodeMetric(
+                episode_id=episode_id,
+                render_version=render_version,
+                source=source,
+                observation_window_start=observation_window_start,
+                observation_window_end=observation_window_end,
+            )
+            self._session.add(row)
+        row.impressions = impressions
+        row.views = views
+        row.avg_watch_seconds = avg_watch_seconds
+        row.completion_rate = completion_rate
+        row.three_second_retention_rate = three_second_retention_rate
+        row.rewatch_rate = rewatch_rate
+        row.continuation_rate = continuation_rate
+        row.engagement = engagement or {}
+        row.raw_payload = raw_payload
+        await self._session.flush()
+        return _episode_metric(row)
+
+    async def list_by_episode(self, episode_id: str) -> list[EpisodeMetric]:
+        result = await self._session.execute(
+            select(m.EpisodeMetric)
+            .where(m.EpisodeMetric.episode_id == episode_id)
+            .order_by(m.EpisodeMetric.observation_window_start)
+        )
+        return [_episode_metric(row) for row in result.scalars()]
+
+
+def _human_feedback(row: m.HumanFeedback) -> HumanFeedback:
+    return HumanFeedback(
+        id=row.id,
+        asset_id=row.asset_id,
+        project_id=row.project_id,
+        decision=row.decision,
+        reason=row.reason,
+        rating=row.rating,
+        tags=row.tags,
+        reviewer=row.reviewer,
+        provider=row.provider,
+        model=row.model,
+        created_at=row.created_at,
+    )
+
+
+class SQLAlchemyHumanFeedbackRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        asset_id: str,
+        decision: str,
+        project_id: str | None = None,
+        reason: str = "",
+        rating: int | None = None,
+        tags: list[str] | None = None,
+        reviewer: str = "",
+        provider: str = "",
+        model: str = "",
+    ) -> HumanFeedback:
+        row = m.HumanFeedback(
+            asset_id=asset_id,
+            decision=decision,
+            project_id=project_id,
+            reason=reason,
+            rating=rating,
+            tags=tags or [],
+            reviewer=reviewer,
+            provider=provider,
+            model=model,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _human_feedback(row)
+
+    async def list_by_asset(self, asset_id: str) -> list[HumanFeedback]:
+        result = await self._session.execute(
+            select(m.HumanFeedback)
+            .where(m.HumanFeedback.asset_id == asset_id)
+            .order_by(m.HumanFeedback.created_at)
+        )
+        return [_human_feedback(row) for row in result.scalars()]
+
+    async def list_by_project(self, project_id: str) -> list[HumanFeedback]:
+        result = await self._session.execute(
+            select(m.HumanFeedback)
+            .where(m.HumanFeedback.project_id == project_id)
+            .order_by(m.HumanFeedback.created_at)
+        )
+        return [_human_feedback(row) for row in result.scalars()]

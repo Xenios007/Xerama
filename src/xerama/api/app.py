@@ -10,17 +10,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from xerama.api.middleware import correlation_id_middleware
 from xerama.api.routers import (
+    analytics,
     assembly,
     assets,
     audio_production,
     characters,
     costs,
     episodes,
+    feedback,
     generation,
     health,
     inspect,
     jobs,
     music_cues,
+    optimization,
     projects,
     season,
     sound_effect_cues,
@@ -167,6 +170,9 @@ def create_app() -> FastAPI:
     app.include_router(subtitles.router)
     app.include_router(assembly.router)
     app.include_router(costs.router)
+    app.include_router(analytics.router)
+    app.include_router(optimization.router)
+    app.include_router(feedback.router)
     return app
 
 
