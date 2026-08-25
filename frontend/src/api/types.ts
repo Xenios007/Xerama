@@ -133,6 +133,61 @@ export interface CanonEvent {
   committed: boolean;
 }
 
+export interface CharacterDNA {
+  eyes?: string;
+  hair?: string;
+  build?: string;
+  distinguishing_features?: string;
+}
+
+export interface CharacterProvenance {
+  identity_type: "synthetic_original" | "licensed_authorized";
+  consent_reference: string;
+  notes: string;
+}
+
+export interface Character {
+  id: string;
+  name: string;
+  role: string;
+  age: string;
+  description: string;
+  personality: string;
+  character_dna: CharacterDNA;
+  visual_identity_id: string | null;
+  voice_identity_id: string | null;
+  reference_pack: Record<string, string>;
+  identity_provenance: CharacterProvenance;
+  locked: boolean;
+  version: number;
+}
+
+export interface CharacterCast {
+  characters: Character[];
+}
+
+export interface WardrobeVariant {
+  id: string;
+  character_id: string;
+  label: string;
+  reference_asset_ids: string[];
+  description: string;
+}
+
+export type PhysicalStateVariant = WardrobeVariant;
+
+export interface VoiceProfile {
+  id: string;
+  character_id: string;
+  provider: string;
+  provider_voice_id: string;
+  language: string;
+  style: string;
+  locked: boolean;
+  version: number;
+  provenance: CharacterProvenance;
+}
+
 export type AssetType = "image" | "video" | "audio" | "subtitle" | "document" | "other";
 export type AssetStatus = "pending" | "accepted" | "rejected";
 

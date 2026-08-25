@@ -70,7 +70,8 @@ export function ProjectDetailPage() {
                       <Link to={`/story/${series.id}`}>
                         <strong>{series.title}</strong>
                       </Link>{" "}
-                      - {series.status}
+                      - {series.status} ·{" "}
+                      <Link to={`/characters/${series.id}`}>Cast</Link>
                       <ul>
                         {series.episodes.map((episode) => (
                           <li key={episode.id}>

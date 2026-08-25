@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-057 (Story Studio)._
+_Last updated: 2026-08-25 - MODULE-058 (Character Studio)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1534,6 +1534,41 @@ surface built across earlier modules, not new subsystems.
   QC badges) - full suites green (Python 510, frontend 14) with
   `typecheck`/`lint`/`build` all clean.
 
+### MODULE-058 - Character Studio
+
+- **No backend changes needed** - Module 05's full character CRUD/lock/
+  wardrobe/physical-state API and MODULE-034's voice-profile CRUD/lock
+  API already covered every read/write this page needs; Module 04's
+  generic `GET /assets?character_id=`/`accept`/`reject` already covers
+  "approve/reject visual takes" for character-owned assets.
+- **`CharacterStudioPage`** (`/characters/:seriesId`) - cast roster
+  (`GET /series/{id}/characters`), each card linking into detail; a
+  `locked` badge is always shown, never hidden.
+- **`CharacterDetailPage`** (`/characters/:seriesId/:characterId`) -
+  identity summary + lock/unlock controls, Character DNA, Provenance
+  (identity type + consent reference + notes - "never hide rights/
+  provenance status": an unlicensed identity's missing consent reference
+  is visually flagged with `xr-detail__provenance--unknown`, not
+  silently displayed the same as a valid one), reference-pack gallery
+  (view -> asset id), Voice (provider/language/lock state), Wardrobe and
+  Physical-state variant lists, and a Visual Takes panel (character-
+  owned assets with Accept/Reject for anything still `pending`).
+- **Recast warning** - unlocking a locked character requires a two-step
+  confirm (`Unlock for recast` -> a warning that dependent shots/takes
+  may become visually inconsistent and are *not* automatically
+  invalidated -> `Confirm recast`), rather than a single destructive
+  click. The warning is informational/static, not a computed dependency
+  scan - no backend endpoint enumerates "shots depending on this
+  identity" yet, so the UI states the real risk plainly rather than
+  fabricating a precise (and likely wrong) count.
+- Acceptance criterion met: "recurring digital actors can be managed
+  visually without filesystem/manual DB work" - verified by 4 new
+  Vitest tests (roster renders with links, detail renders DNA/
+  provenance/voice/lock control, an unlicensed identity's missing
+  consent is visually flagged, the two-step recast warning gates the
+  unlock action) - full suites green (Python 510 unaffected, frontend
+  18) with `typecheck`/`lint`/`build` all clean.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1559,7 +1594,7 @@ surface built across earlier modules, not new subsystems.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Remaining frontend studio pages (MODULE-058-060 - the shell from
+- Remaining frontend studio pages (MODULE-059-060 - the shell from
   MODULE-055 is ready to host them), analytics/learning (MODULE-061-065),
   security/deployment/hardening (MODULE-066-070), testing/eval
   frameworks (MODULE-071-076), backup/migration/docs/release

@@ -1,0 +1,63 @@
+.xr-cast__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.xr-cast__card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.xr-cast__role {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  color: var(--xr-color-muted, #6b7280);
+  margin: 0.25rem 0;
+}
+
+.xr-cast__desc {
+  font-size: 0.9rem;
+}
+
+.xr-detail__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.xr-detail__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.xr-detail__warning {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fbbf24;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+}
+
+.xr-detail__provenance {
+  font-size: 0.85rem;
+}
+
+.xr-detail__provenance--unknown {
+  color: var(--xr-color-danger, #dc2626);
+  font-weight: 600;
+}
+
+.xr-asset-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--xr-color-border, #e5e7eb);
+  font-size: 0.85rem;
+}

@@ -3,6 +3,8 @@ import { AppShell } from "./components/layout/AppShell";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { StoryStudioPage } from "./pages/StoryStudioPage";
+import { CharacterStudioPage } from "./pages/CharacterStudioPage";
+import { CharacterDetailPage } from "./pages/CharacterDetailPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 
 // Exported separately from the router itself so tests can build a
@@ -26,8 +28,15 @@ export const routes: RouteObject[] = [
       { path: "story/:seriesId", element: <StoryStudioPage /> },
       {
         path: "characters",
-        element: <PlaceholderPage title="Character Studio" module="MODULE-058" />,
+        element: (
+          <PlaceholderPage
+            title="Character Studio"
+            module="MODULE-058 - open a project's series from the Dashboard to view its cast"
+          />
+        ),
       },
+      { path: "characters/:seriesId", element: <CharacterStudioPage /> },
+      { path: "characters/:seriesId/:characterId", element: <CharacterDetailPage /> },
       {
         path: "production",
         element: <PlaceholderPage title="Production Studio" module="MODULE-059" />,

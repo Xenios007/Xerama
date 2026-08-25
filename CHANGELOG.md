@@ -4,6 +4,18 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-058 - Character Studio)
+
+- No backend changes needed - Module 05/MODULE-034/Module 04 already
+  covered every read/write this page needs.
+- `CharacterStudioPage` (cast roster) + `CharacterDetailPage` (DNA,
+  provenance - unlicensed/missing-consent visually flagged, reference
+  gallery, voice, wardrobe/physical-state variants, visual-takes accept/
+  reject, two-step recast confirmation with a stale-dependent-asset
+  warning).
+- 4 new Vitest tests (18 total); typecheck/lint/build clean; Python
+  suite unaffected (510).
+
 ### Added (MODULE-057 - Story Studio)
 
 - New backend read endpoints: `GET /projects/{id}/concept-candidates`

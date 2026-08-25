@@ -7,7 +7,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type {
+  Asset,
   CanonEvent,
+  Character,
+  CharacterCast,
+  CharacterDNA,
+  CharacterProvenance,
   ConceptCandidateRecord,
   CostSummaryResponse,
   CreativeBrief,
@@ -17,12 +22,15 @@ import type {
   JobRecord,
   JudgeDecisionRecord,
   ObservabilitySnapshot,
+  PhysicalStateVariant,
   ProjectRecord,
   ProjectStatusResponse,
   QCResult,
   SeasonPlanRecord,
   SeriesBible,
   SeriesRecord,
+  VoiceProfile,
+  WardrobeVariant,
 } from "./types";
 
 export const queryKeys = {
@@ -218,5 +226,104 @@ export function useGenerateSeries(projectId: string | undefined) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.projectStatus(projectId) });
       }
     },
+  });
+}
+
+export function useCharacterCast(seriesId: string | undefined) {
+  return useQuery({
+    queryKey: ["series", seriesId, "characters"],
+    queryFn: () => api.get<CharacterCast>(`/series/${seriesId}/characters`),
+    enabled: Boolean(seriesId),
+  });
+}
+
+export function useCharacter(characterId: string | undefined) {
+  return useQuery({
+    queryKey: ["characters", characterId],
+    queryFn: () => api.get<Character>(`/characters/${characterId}`),
+    enabled: Boolean(characterId),
+  });
+}
+
+export function useVoiceProfile(characterId: string | undefined) {
+  return useQuery({
+    queryKey: ["characters", characterId, "voice-profile"],
+    queryFn: () => api.get<VoiceProfile>(`/characters/${characterId}/voice-profile`),
+    enabled: Boolean(characterId),
+  });
+}
+
+export function useWardrobeVariants(characterId: string | undefined) {
+  return useQuery({
+    queryKey: ["characters", characterId, "wardrobe"],
+    queryFn: () => api.get<WardrobeVariant[]>(`/characters/${characterId}/wardrobe`),
+    enabled: Boolean(characterId),
+  });
+}
+
+export function usePhysicalStateVariants(characterId: string | undefined) {
+  return useQuery({
+    queryKey: ["characters", characterId, "physical-states"],
+    queryFn: () => api.get<PhysicalStateVariant[]>(`/characters/${characterId}/physical-states`),
+    enabled: Boolean(characterId),
+  });
+}
+
+export function useCharacterAssets(projectId: string | undefined, characterId: string | undefined) {
+  return useQuery({
+    queryKey: ["assets", { projectId, characterId }],
+    queryFn: () => api.get<Asset[]>(`/assets?project_id=${projectId}&character_id=${characterId}`),
+    enabled: Boolean(projectId) && Boolean(characterId),
+  });
+}
+
+export function useLockCharacter(characterId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<Character>(`/characters/${characterId}/lock`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["characters", characterId] }),
+  });
+}
+
+export function useUnlockCharacterForRecast(characterId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<Character>(`/characters/${characterId}/unlock`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["characters", characterId] }),
+  });
+}
+
+export function useSetCharacterProvenance(characterId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (provenance: CharacterProvenance) =>
+      api.post<Character>(`/characters/${characterId}/provenance`, provenance),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["characters", characterId] }),
+  });
+}
+
+export function useUpdateCharacterDna(characterId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (character_dna: CharacterDNA) =>
+      api.patch<Character>(`/characters/${characterId}/identity`, { character_dna }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["characters", characterId] }),
+  });
+}
+
+export function useAcceptAsset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (assetId: string) => api.post<Asset>(`/assets/${assetId}/accept`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["assets"] }),
+  });
+}
+
+export function useRejectAsset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assetId, reason }: { assetId: string; reason: string }) =>
+      api.post<Asset>(`/assets/${assetId}/reject?reason=${encodeURIComponent(reason)}`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["assets"] }),
   });
 }
