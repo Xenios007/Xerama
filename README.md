@@ -124,6 +124,7 @@ integration/E2E boundaries, fake-provider inventory, coverage).
 | `docs/DATA_MODEL.md` / `docs/JSON_CONTRACTS.md` | Persisted entities and the structured-output schemas every AI role must return. |
 | `docs/DEPLOYMENT.md` | Local/container setup, environment separation, backup/restore, hosted-deployment path. |
 | `docs/TESTING.md` | Test-architecture map: layers, fixtures, fake providers, coverage. |
+| `docs/RELEASE_NOTES.md` | Release-readiness summary, the release checklist (`scripts/release_checklist.py`), and known limitations. |
 | `docs/AI_MODELS.md` | Model-role assignments and free-tier defaults. |
 | `docs/WORKFLOW.md` / `docs/STORY_FORMULA.md` | The creative pipeline stages and the storytelling heuristics behind them. |
 | `modules/README.md` | The authoritative MODULE-001..080 implementation queue and its execution rules. |

@@ -151,7 +151,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Xerama",
         description="AI microdrama production system - XER-001 story pipeline API.",
-        version="0.1.0",
+        version="0.2.0",
         lifespan=lifespan,
     )
     app.middleware("http")(correlation_id_middleware)

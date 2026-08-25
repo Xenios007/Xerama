@@ -4,6 +4,40 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-25
+
+MODULE-001..080 architecture queue reaches the MODULE-080 release gate
+(`scripts/release_checklist.py` - "RELEASE READY") - see
+`docs/RELEASE_NOTES.md` for the full release-readiness summary and known
+limitations, and `docs/IMPLEMENTATION_STATUS.md` for the living,
+per-module detail behind every entry below.
+
+### Added (MODULE-080 - Release & Operations)
+
+- `scripts/release_checklist.py` - the release gate: versioning,
+  single-migration-head + migration-applies check, a real backup/
+  verify/restore round-trip, the full backend test suite, the E2E flow
+  alone, worker/restart-resume tests, `pip-audit`, a TODO/FIXME/
+  `NotImplementedError` sweep, the startup smoke test, and (unless
+  `--backend-only`) the full frontend typecheck/lint/test/build.
+  Prints PASS/FAIL per check; exits non-zero on any failure.
+- `docs/RELEASE_NOTES.md` - the one-page release-readiness answer:
+  what's verified against fake providers (everything), what's pending
+  live-provider verification (real paid adapters, real FFmpeg/ffprobe,
+  hosted PostgreSQL/object storage - all documented seams, none
+  implemented), and a consolidated known-limitations list.
+- Version bumped `0.1.0` -> `0.2.0` (`pyproject.toml`, `api/app.py`) -
+  marks the MODULE-001..080 architecture queue reaching this release
+  gate.
+- **Ran the release checklist for real**: every check passed
+  ("RELEASE READY") - 742 backend tests + 2 conditionally-skipped (real
+  FFmpeg/ffprobe not installed here), 27 frontend tests, zero TODO/
+  FIXME/`NotImplementedError` markers anywhere in `src/xerama` or
+  `frontend/src`, zero known dependency vulnerabilities.
+- 2 new tests for the checklist's own pure logic (its heavier
+  subprocess-based checks are verified by the real run above, not
+  re-invoked recursively from inside pytest).
+
 ### Added (MODULE-079 - Documentation/Developer Experience)
 
 - `README.md` substantially rewritten - it had gone stale (a "planned"

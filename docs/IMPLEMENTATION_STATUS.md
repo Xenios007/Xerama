@@ -1,6 +1,8 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-079 (Documentation/Developer Experience)._
+_Last updated: 2026-08-25 - MODULE-080 (Release & Operations). The
+MODULE-001..080 architecture queue is now complete; see
+`docs/RELEASE_NOTES.md` for the release-readiness summary._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -2507,6 +2509,57 @@ justified piece of tooling.
 - No application/test changes - this module is documentation; full
   suite unaffected (742 passed + 2 skipped).
 
+### MODULE-080 - Release & Operations
+
+- **`scripts/release_checklist.py`** - the single release gate the
+  module's "Requirements" line names, all in one script: `git status`
+  (informational only - a release can legitimately ship with staged
+  release-note edits), `alembic heads` (single-head check), a migration
+  applied to a scratch DB, a real backup -> verify -> restore round-trip
+  against scratch data (exercises MODULE-077's actual `backup()`/
+  `verify()`/`restore()` functions, not a re-implementation of them),
+  the full backend test suite, the E2E flow alone (MODULE-075),
+  worker/restart-resume tests (MODULE-074/076), `pip-audit`, a TODO/
+  FIXME/`XXX`/`NotImplementedError` sweep across `src/xerama` and
+  `frontend/src`, the clean-environment startup smoke test
+  (MODULE-069), and - unless run with `--backend-only` (no Node
+  available) - the frontend typecheck/lint/test/build. Prints a
+  PASS/FAIL line per check and exits non-zero if anything failed.
+- **`docs/RELEASE_NOTES.md`** - the one-page release-readiness answer,
+  separate from this file's ongoing per-module detail: what's verified
+  against fake/deterministic providers (the entire pipeline, end to
+  end), what's explicitly pending live-provider verification (real
+  paid image/video/voice/lip-sync/vision-QC adapters, real
+  FFmpeg/ffprobe, hosted PostgreSQL/object storage - each already has a
+  ready seam and zero pipeline-code change needed to plug one in), and
+  a consolidated known-limitations list (the `get_or_create` TOCTOU
+  race, unscheduled abandoned-job recovery, `GET /jobs/queued` being
+  unscoped, Episode-1-only auto-generation, the per-worker rate
+  limiter) cross-referenced to where each is already documented.
+- **Version bumped `0.1.0` -> `0.2.0`** (`pyproject.toml`, `api/app.py`
+  `FastAPI(version=...)`) - the identifier for the MODULE-001..080
+  architecture queue reaching this release gate; `CHANGELOG.md`'s
+  `[0.2.0]` section is the authoritative per-module change history
+  behind it.
+- **The checklist was run for real, not just written**: every check
+  passed - `RELEASE READY`. 742 backend tests passed + 2 conditionally
+  skipped (real FFmpeg/ffprobe, not installed in this environment -
+  the fake-provider paths cover the same code otherwise), 27 frontend
+  tests passed, zero TODO/FIXME/`XXX`/`NotImplementedError` markers
+  found anywhere in `src/xerama` or `frontend/src`, zero known
+  dependency vulnerabilities per `pip-audit`. Independently
+  re-confirmed via a fresh `pytest -q` run: `742 passed, 2 skipped`.
+- **2 new tests** (`tests/test_release_checklist.py`) for the
+  checklist's own pure/self-contained logic (the TODO/FIXME sweep,
+  against both this real repository and a planted-marker fixture) -
+  the heavier subprocess-based checks (full pytest run, frontend
+  build, smoke test) are verified by the real run above, not
+  re-invoked recursively from inside the suite they'd be running.
+- Acceptance criterion met: "a single command answers whether this
+  repository is ready to run for real" - `scripts/release_checklist.py`
+  is that command; `docs/RELEASE_NOTES.md` is the human-readable
+  record of its last real run.
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2541,7 +2594,6 @@ justified piece of tooling.
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Release operations (MODULE-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
 - See `modules/README.md` for the full authoritative MODULE-001..080 queue.
