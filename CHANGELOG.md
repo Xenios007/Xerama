@@ -4,6 +4,20 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-071 - Testing Architecture)
+
+- `docs/TESTING.md` - unit/integration/E2E boundaries, fake-provider
+  inventory, isolation conventions, coverage baseline.
+- `pytest-cov` added; `pytest --cov=xerama` gives 87% overall, ~100%
+  across domain/most-of-pipeline/repository-interfaces.
+- Found and fixed two real gaps the coverage run surfaced: `cli.py` had
+  0% coverage (a second, independently-wired pipeline entrypoint never
+  exercised under test - now covered end-to-end with a faked LLM
+  provider); `providers/identity_qc.py` was confirmed-dead code (0%
+  coverage, superseded by MODULE-044, nothing imported it) - deleted.
+- 3 new tests; full suite green (618 passed, up from 615). Frontend
+  suite (27 tests/7 files) and typecheck/lint/build all verified clean.
+
 ### Added (MODULE-070 - Production Hardening)
 
 - FFmpeg/ffprobe subprocess calls now have a timeout

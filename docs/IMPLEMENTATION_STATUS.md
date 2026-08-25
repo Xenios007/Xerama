@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-070 (Production Hardening)._
+_Last updated: 2026-08-25 - MODULE-071 (Testing Architecture)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -2093,6 +2093,51 @@ solid from earlier modules and fixed the two real gaps:
   subprocess-timeout, 3 unhandled-exception, 2 large-project) - full
   suite green (615 passed, up from 607).
 
+### MODULE-071 - Testing Architecture
+
+`AUDIT/EXTEND` - the testing infrastructure (~87 backend files, fixture
+conventions, fake-provider inventory) already existed from every owning
+module; this pass documented it and closed the two real gaps a coverage
+run surfaced.
+
+- **`docs/TESTING.md`** (new) - the unit/integration/E2E boundary
+  definitions, the fake-provider inventory table (every external
+  boundary and which `Fake*` backs it in tests), isolation conventions
+  (temp DB/storage, `get_settings.cache_clear()` for the `@lru_cache`d
+  settings singleton, fresh per-fixture `RateLimiter`/
+  `ProviderHealthTracker` instances), and a coverage baseline.
+- **`pytest-cov` added** (dev dependency) - `pytest --cov=xerama
+  --cov-report=term-missing` gives **87% overall**, ~100% across
+  `domain/`, most of `pipeline/`, and `repositories/interfaces.py`; the
+  lower router-file percentages are almost entirely `HTTPException`
+  branches for less-common failure codes, not untested business logic
+  (the service/pipeline code each router calls is what's actually near
+  100%) - documented in `docs/TESTING.md` section 5 as expected
+  shortfall, not a gap list to chase to 100%.
+- **Real gap #1 - `cli.py` had 0% coverage.** The `python -m xerama.cli`
+  entrypoint independently re-wires the exact same Showrunner/AIGateway/
+  repository construction the API's `lifespan` does, but nothing had
+  ever run it under test - a contributor could break that wiring and
+  only find out by manually invoking the CLI with a real API key. Fixed:
+  `_parse_args` now takes an optional `argv` list (trivially testable
+  without touching `sys.argv`), and `tests/test_cli.py` runs `main()`
+  end-to-end with `OpenRouterProvider` monkeypatched to a
+  `FakeLLMProvider` - the same "fake only the provider boundary, exercise
+  the real pipeline" approach `test_api.py`'s fixture already uses.
+- **Real gap #2 - `providers/identity_qc.py` was confirmed-dead code.**
+  0% coverage, and its own docstring said it was superseded by
+  MODULE-044's `MediaQCProvider`; a `grep` confirmed nothing imports the
+  module or its constants (`media_qc.py`'s docstring cited it only as
+  historical context). Deleted rather than tested - a coverage report
+  finding 0%-covered dead code is a reason to remove it, not a reason to
+  write a test that exists only to move a number.
+- Acceptance criterion met: "run complete backend/frontend test commands
+  from a clean checkout" - verified by actually running all four
+  (`pytest -q`, `pytest --cov=...`, `npm test -- --run`, `npm run
+  typecheck && npm run lint && npm run build`), all green. 3 new tests
+  (`test_cli.py`); full suite green (618 passed, up from 615). Frontend:
+  27 tests / 7 files, typecheck/lint/build all clean.
+
 ## Partially implemented
 
 - **`get_or_create`-style repository methods and concurrent first callers** -
@@ -2127,7 +2172,7 @@ solid from earlier modules and fixed the two real gaps:
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Testing/eval frameworks (MODULE-071-076), backup/migration/docs/release
+- Eval frameworks (MODULE-072-076), backup/migration/docs/release
   (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).

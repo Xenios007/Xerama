@@ -29,7 +29,7 @@ from xerama.repositories.sqlalchemy_impl import (
 )
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the Xerama XER-001 story pipeline locally.")
     parser.add_argument("--name", default="Trial 01", help="Project name")
     parser.add_argument("--genre", required=True)
@@ -37,7 +37,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--target-audience", default="general")
     parser.add_argument("--episode-count", type=int, default=3)
     parser.add_argument("--episode-duration", type=int, default=75)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 async def main() -> None:

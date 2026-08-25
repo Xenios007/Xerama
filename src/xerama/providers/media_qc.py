@@ -1,11 +1,12 @@
 """Multimodal QC vision-provider contract (MODULE-044).
 
-Generalizes `providers/identity_qc.py`'s deferred `IdentityQCProvider` (see
-that module's docstring - "defers multimodal implementation to Module 11",
-which is this module) into one Protocol covering every QC dimension that
-genuinely needs a vision-capable model to score: identity, style,
-continuity, composition, motion. `MediaQCDimension.MEDIA_HEALTH` and
-`.DIALOGUE_AUDIO` need no model at all - see `pipeline/media_qc_checks.py`.
+Generalizes Module 05's originally-deferred, identity-only
+`IdentityQCProvider` stub (removed - superseded by this module, per
+"defers multimodal implementation to Module 11", which is this module)
+into one Protocol covering every QC dimension that genuinely needs a
+vision-capable model to score: identity, style, continuity, composition,
+motion. `MediaQCDimension.MEDIA_HEALTH` and `.DIALOGUE_AUDIO` need no
+model at all - see `pipeline/media_qc_checks.py`.
 
 No real (paid/free) implementation exists yet - same "contract + fake now,
 real adapter later" pattern as every other media provider in this codebase

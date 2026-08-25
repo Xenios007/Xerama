@@ -27,6 +27,8 @@ dev = [
     # database); no CI pipeline exists yet to run this automatically
     # (MODULE-069/070), so it is a manual pre-release check for now.
     "pip-audit>=2.7",
+    # MODULE-071 - coverage reporting. Run via `pytest --cov=xerama`.
+    "pytest-cov>=5.0",
 ]
 
 [build-system]
