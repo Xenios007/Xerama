@@ -262,3 +262,56 @@ async def test_claim_race_only_one_worker_wins(tmp_path) -> None:
     assert winners[0].id == job.id
 
     await engine.dispose()
+
+
+async def test_list_filtered_by_project_stage_status(session) -> None:
+    project_id = await _project(session)
+    repo = SQLAlchemyJobRepository(session)
+    await repo.enqueue(project_id, JobStage.CONCEPT_GENERATION, payload={})
+    judge = await repo.enqueue(project_id, JobStage.JUDGE, payload={})
+    await repo.claim("worker-1")  # concept generation job becomes running
+    await session.commit()
+
+    only_project = await repo.list_filtered(project_id=project_id)
+    assert len(only_project) == 2
+
+    only_stage = await repo.list_filtered(project_id=project_id, stage=JobStage.JUDGE)
+    assert [j.id for j in only_stage] == [judge.id]
+
+    only_queued = await repo.list_filtered(project_id=project_id, status=JobStatus.QUEUED)
+    assert [j.id for j in only_queued] == [judge.id]
+
+
+async def test_enqueue_rejects_duplicate_singleton_stage_in_flight(session) -> None:
+    project_id = await _project(session)
+    repo = SQLAlchemyJobRepository(session)
+    await repo.enqueue(project_id, JobStage.CONCEPT_GENERATION, payload={})
+    await session.commit()
+
+    with pytest.raises(ValueError, match="already in flight"):
+        await repo.enqueue(project_id, JobStage.CONCEPT_GENERATION, payload={})
+
+
+async def test_enqueue_allows_duplicate_after_first_completes(session) -> None:
+    project_id = await _project(session)
+    repo = SQLAlchemyJobRepository(session)
+    first = await repo.enqueue(project_id, JobStage.CONCEPT_GENERATION, payload={})
+    await session.commit()
+    claimed = await repo.claim("worker-1")
+    await repo.succeed_job(claimed.id)
+    await session.commit()
+
+    second = await repo.enqueue(project_id, JobStage.CONCEPT_GENERATION, payload={})
+    await session.commit()
+    assert second.id != first.id
+
+
+async def test_enqueue_does_not_dedupe_non_singleton_stages(session) -> None:
+    project_id = await _project(session)
+    repo = SQLAlchemyJobRepository(session)
+    await repo.enqueue(project_id, JobStage.EPISODE_SCRIPT, payload={"episode": 1})
+    await repo.enqueue(project_id, JobStage.EPISODE_SCRIPT, payload={"episode": 2})
+    await session.commit()
+
+    jobs = await repo.list_filtered(project_id=project_id, stage=JobStage.EPISODE_SCRIPT)
+    assert len(jobs) == 2

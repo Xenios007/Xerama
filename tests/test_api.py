@@ -1171,3 +1171,63 @@ async def test_project_observability_snapshot(client: httpx.AsyncClient) -> None
     assert "queue_depth" in body
     assert "stage_durations" in body
     assert "provider_reliability" in body
+
+
+@pytest.mark.asyncio
+async def test_list_update_archive_project(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+
+    listed = await client.get("/projects")
+    assert listed.status_code == 200
+    assert any(p["id"] == project_id for p in listed.json())
+
+    updated = await client.patch(f"/projects/{project_id}", json={"name": "Renamed"})
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Renamed"
+
+    archived = await client.post(f"/projects/{project_id}/archive")
+    assert archived.status_code == 200
+    assert archived.json()["status"] == "archived"
+
+    blocked = await client.patch(f"/projects/{project_id}", json={"name": "no"})
+    assert blocked.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_project_status_reports_series_and_episode_summary(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+    generated = await client.post(
+        f"/projects/{project_id}/generate-series",
+        json={"genre": "thriller", "episode_count": 3, "episode_duration_seconds": 75},
+    )
+    series_id = generated.json()["series_id"]
+
+    status = await client.get(f"/projects/{project_id}/status")
+    assert status.status_code == 200
+    body = status.json()
+    assert body["project"]["id"] == project_id
+    series = next(s for s in body["series"] if s["id"] == series_id)
+    assert len(series["episodes"]) == 3
+    assert series["episodes"][0]["current_render_version"] is None
+
+
+@pytest.mark.asyncio
+async def test_jobs_list_filter_and_duplicate_prevention(client: httpx.AsyncClient) -> None:
+    created = await client.post("/projects", json={"name": "Trial 01"})
+    project_id = created.json()["id"]
+
+    first = await client.post(
+        "/jobs/enqueue", json={"project_id": project_id, "stage": "concept_generation"}
+    )
+    assert first.status_code == 200, first.text
+
+    duplicate = await client.post(
+        "/jobs/enqueue", json={"project_id": project_id, "stage": "concept_generation"}
+    )
+    assert duplicate.status_code == 409
+
+    listed = await client.get("/jobs", params={"project_id": project_id})
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1

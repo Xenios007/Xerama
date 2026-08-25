@@ -103,6 +103,23 @@ class ProjectRepository(Protocol):
     async def create(self, name: str, description: str = "") -> ProjectRecord: ...
     async def get(self, project_id: str) -> ProjectRecord | None: ...
 
+    async def list_all(self) -> list[ProjectRecord]:
+        """See MODULE-051 - every project, newest first."""
+        ...
+
+    async def update(
+        self, project_id: str, name: str | None = None, description: str | None = None
+    ) -> ProjectRecord:
+        """Raises `ValueError` if the project doesn't exist, or
+        `PermissionError` if it's archived - "validate edits against
+        locked/published state"."""
+        ...
+
+    async def archive(self, project_id: str) -> ProjectRecord:
+        """Idempotent - archiving an already-archived project is a no-op,
+        not an error."""
+        ...
+
 
 class ConceptRepository(Protocol):
     """Persists both dual-generation candidates and the judge decision. Never
@@ -144,6 +161,10 @@ class SeriesRepository(Protocol):
     async def save_cast(self, series_id: str, cast: CharacterCast) -> None: ...
 
     async def get_cast(self, series_id: str) -> CharacterCast: ...
+
+    async def list_by_project(self, project_id: str) -> list[SeriesRecord]:
+        """See MODULE-051 - every series ever created for this project."""
+        ...
 
 
 class SeasonRepository(Protocol):
@@ -220,6 +241,16 @@ class JobRepository(Protocol):
         """See MODULE-050 - every job (both the synchronous JobRunner path
         and the MODULE-041 queue path) ever created for this project,
         newest first."""
+        ...
+
+    async def list_filtered(
+        self,
+        project_id: str | None = None,
+        stage: JobStage | None = None,
+        status: JobStatus | None = None,
+    ) -> list[JobRecord]:
+        """See MODULE-054 - the general job-progress query the UI polls;
+        any combination of filters, newest first."""
         ...
 
     # --- Job-queue methods (MODULE-041) - additive, coexist with the

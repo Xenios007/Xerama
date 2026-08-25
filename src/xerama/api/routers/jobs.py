@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from xerama.api.deps import get_job_repo
-from xerama.domain.enums import JobStage
+from xerama.domain.enums import JobStage, JobStatus
 from xerama.repositories.interfaces import JobRecord, JobRepository
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -25,15 +25,32 @@ class EnqueueJobRequest(BaseModel):
 async def enqueue_job(
     body: EnqueueJobRequest, job_repo: JobRepository = Depends(get_job_repo)
 ) -> JobRecord:
-    return await job_repo.enqueue(
-        body.project_id,
-        body.stage,
-        body.payload,
-        priority=body.priority,
-        series_id=body.series_id,
-        depends_on_job_id=body.depends_on_job_id,
-        max_attempts=body.max_attempts,
-    )
+    try:
+        return await job_repo.enqueue(
+            body.project_id,
+            body.stage,
+            body.payload,
+            priority=body.priority,
+            series_id=body.series_id,
+            depends_on_job_id=body.depends_on_job_id,
+            max_attempts=body.max_attempts,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("", response_model=list[JobRecord])
+async def list_jobs(
+    project_id: str | None = None,
+    stage: JobStage | None = None,
+    status: JobStatus | None = None,
+    job_repo: JobRepository = Depends(get_job_repo),
+) -> list[JobRecord]:
+    """See MODULE-054 - "list/get jobs by project/episode/stage/status."
+    `episode_id` filtering isn't supported - `GenerationJob` isn't
+    episode-scoped in the schema (only project/series), so this filters
+    by project/stage/status; any combination, or none for everything."""
+    return await job_repo.list_filtered(project_id=project_id, stage=stage, status=status)
 
 
 @router.get("/queued", response_model=list[JobRecord])

@@ -273,6 +273,12 @@ def get_job_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyJobR
     return SQLAlchemyJobRepository(session)
 
 
+def get_episode_render_repo(
+    session: AsyncSession = Depends(get_session),
+) -> SQLAlchemyEpisodeRenderRepository:
+    return SQLAlchemyEpisodeRenderRepository(session)
+
+
 def get_season_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemySeasonRepository:
     return SQLAlchemySeasonRepository(session)
 

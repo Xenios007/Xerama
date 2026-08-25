@@ -4,6 +4,24 @@ All notable changes to Xerama are recorded here.
 
 ## [Unreleased]
 
+### Added (MODULE-051 / MODULE-052 / MODULE-053 / MODULE-054 - Project, Generation, Asset, Job/Progress APIs)
+
+- `ProjectRepository.list_all`/`update`/`archive` + new
+  `GET /projects`, `PATCH /projects/{id}`, `POST /projects/{id}/archive`,
+  `GET /projects/{id}/status` (series/episode/current-render-version
+  summary).
+- `SeriesRepository.list_by_project`.
+- `JobRepository.enqueue` now rejects a duplicate in-flight job for
+  project/series-singleton stages (concept/judge/merge/bible/characters/
+  season plan); per-episode stages are exempt (documented - no
+  `episode_id` column to disambiguate safely).
+- `JobRepository.list_filtered` (project/stage/status) + `GET /jobs`.
+- MODULE-053 (Asset API) audited - already fully satisfied by Module 04,
+  no code changes; "lock where authorized" deliberately deferred pending
+  MODULE-067 (no authorization system exists yet to define "authorized").
+- 14 new tests (7 project lifecycle, 4 job queue, 3 API); full suite
+  (509) green.
+
 ### Added (MODULE-050 - Production Observability)
 
 - `xerama/observability/logging.py` - contextvar-backed correlation ID,

@@ -1,6 +1,6 @@
 # Xerama Implementation Status
 
-_Last updated: 2026-08-25 - MODULE-050 (Production Observability)._
+_Last updated: 2026-08-25 - MODULE-051/052/053/054 (Project/Generation/Asset/Job-Progress APIs)._
 
 **Numbering note:** `modules/` was restructured from 14 broad briefs
 (`01_*.md`-`14_*.md`, now legacy/history-only) into the authoritative
@@ -1350,6 +1350,66 @@ and 048 explicitly reuses 046's render rather than a second encode path
   snapshot shape) and the full existing suite staying green (483 -> 495)
   with unchanged behavior for every existing call site.
 
+### MODULE-051 / MODULE-052 / MODULE-053 / MODULE-054 - Project, Generation, Asset, Job/Progress APIs
+
+Audited together since all four are extensions of already-substantial API
+surface built across earlier modules, not new subsystems.
+
+- **MODULE-051 (Project API)** - was create/get only. Added
+  `ProjectRepository.list_all`/`update`/`archive` (`update` raises
+  `PermissionError` on an archived project - "validate edits against
+  locked/published state," archiving is the closest existing analog to a
+  lock since no finer-grained project lock concept exists) and
+  `SeriesRepository.list_by_project`. New API: `GET /projects` (list),
+  `PATCH /projects/{id}` (409 if archived), `POST /projects/{id}/archive`
+  (idempotent), `GET /projects/{id}/status` ("current series/production
+  status and active version IDs" - series + per-episode status +
+  `current_render_version` from MODULE-047's `EpisodeRenderRepository`,
+  one call a project dashboard can render from directly).
+- **MODULE-052 (Generation API)** - "job IDs returned immediately" and
+  cancellation already existed (MODULE-041/042). Added the missing
+  "prevent duplicate incompatible runs": `JobRepository.enqueue` now
+  rejects (`ValueError` -> 409) a second `queued`/`running`/`retrying`
+  job for a stage that only ever makes sense one-at-a-time per
+  (project, series) - concept generation, judge, concept merge, series
+  bible, characters, season plan. Per-episode stages (script/shots/etc.)
+  are deliberately excluded from this check - `GenerationJob` has no
+  `episode_id` column, so deduplicating them by (project, stage) alone
+  would incorrectly block two different episodes' legitimate concurrent
+  jobs. **Full async stage-handler wiring for the story/media pipeline
+  remains deferred**, consistent with MODULE-041's own explicit scope
+  note ("adds a genuinely new, parallel capability... without forcing
+  every current call site to migrate immediately") - the synchronous
+  pipeline stays the primary path per "keep synchronous dev path only
+  where useful," and building a payload/dispatch contract for async
+  story generation now, before MODULE-055+'s frontend defines what it
+  actually needs from one, risks building the wrong contract.
+- **MODULE-053 (Asset API)** - audited, no code changes needed: list/
+  filter/get/download/accept/reject/upload already existed from Module
+  04, `LocalStorageProvider`'s path-traversal guard already covers "serve
+  local assets safely," and every returned `Asset` already carries
+  `take_number` ("versions/takes"). "Lock where authorized" is the one
+  unmet requirement - deliberately deferred, since no authorization
+  system exists yet (MODULE-067) to define what "authorized" means; a
+  per-asset lock with no caller able to fail an authorization check would
+  be a no-op field, not a real control.
+- **MODULE-054 (Job/Progress API)** - `GET /jobs/{id}` (inspect.py),
+  `/jobs/queued`, `/jobs/failed`, and `POST /jobs/{id}/cancel`
+  (respects state - a no-op on an already-terminal job) already existed.
+  Added the missing general filter: `JobRepository.list_filtered`
+  (project/stage/status, any combination) + `GET /jobs`. `episode_id`
+  filtering isn't supported for the same schema reason as MODULE-052's
+  dedup limitation - documented, not silently dropped.
+- Acceptance criteria met: a frontend can manage project lifecycle,
+  enqueue/cancel/inspect jobs with progress and duplicate protection, and
+  inspect/manage assets entirely through documented endpoints - verified
+  by 7 project-lifecycle tests, 4 job-queue tests (filtering, dedup
+  rejection, dedup-clears-after-completion, non-singleton stages exempt),
+  and 3 API end-to-end tests, plus the full existing suite staying green
+  (495 -> 509) with unchanged behavior for every existing call site. No
+  migration needed - every addition is a new repository method or
+  endpoint over already-existing tables.
+
 ## Partially implemented
 
 - **Character/Style identity** - the full structural layer (`Character`,
@@ -1375,10 +1435,10 @@ and 048 explicitly reuses 046's render rather than a second encode path
   verification - the contracts/router/registries/fake implementations
   these will plug into already exist (MODULE-006/007/029/032/034/036/
   044/046/048).
-- Remaining APIs/frontend
-  (MODULE-051-060), analytics/learning (MODULE-061-065), security/
-  deployment/hardening (MODULE-066-070), testing/eval frameworks
-  (MODULE-071-076), backup/migration/docs/release (MODULE-077-080).
+- Frontend (MODULE-055-060), analytics/learning (MODULE-061-065),
+  security/deployment/hardening (MODULE-066-070), testing/eval
+  frameworks (MODULE-071-076), backup/migration/docs/release
+  (MODULE-077-080).
 - PostgreSQL/S3 adapters (repository/storage interfaces are ready for this;
   no concrete implementation exists yet - ADR-021/ADR-022).
 - See `modules/README.md` for the full authoritative MODULE-001..080 queue.

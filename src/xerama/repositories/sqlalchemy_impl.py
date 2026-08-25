@@ -48,6 +48,12 @@ from xerama.repositories.interfaces import (
 )
 
 
+def _project_record(row: m.Project) -> ProjectRecord:
+    return ProjectRecord(
+        id=row.id, name=row.name, description=row.description, status=row.status, created_at=row.created_at
+    )
+
+
 class SQLAlchemyProjectRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -56,13 +62,38 @@ class SQLAlchemyProjectRepository:
         row = m.Project(name=name, description=description)
         self._session.add(row)
         await self._session.flush()
-        return ProjectRecord(id=row.id, name=row.name, description=row.description, status=row.status, created_at=row.created_at)
+        return _project_record(row)
 
     async def get(self, project_id: str) -> ProjectRecord | None:
         row = await self._session.get(m.Project, project_id)
+        return _project_record(row) if row is not None else None
+
+    async def list_all(self) -> list[ProjectRecord]:
+        result = await self._session.execute(select(m.Project).order_by(m.Project.created_at.desc()))
+        return [_project_record(row) for row in result.scalars()]
+
+    async def update(
+        self, project_id: str, name: str | None = None, description: str | None = None
+    ) -> ProjectRecord:
+        row = await self._session.get(m.Project, project_id)
         if row is None:
-            return None
-        return ProjectRecord(id=row.id, name=row.name, description=row.description, status=row.status, created_at=row.created_at)
+            raise ValueError(f"project {project_id} not found")
+        if row.status == "archived":
+            raise PermissionError(f"project {project_id} is archived - cannot edit")
+        if name is not None:
+            row.name = name
+        if description is not None:
+            row.description = description
+        await self._session.flush()
+        return _project_record(row)
+
+    async def archive(self, project_id: str) -> ProjectRecord:
+        row = await self._session.get(m.Project, project_id)
+        if row is None:
+            raise ValueError(f"project {project_id} not found")
+        row.status = "archived"
+        await self._session.flush()
+        return _project_record(row)
 
 
 class SQLAlchemyConceptRepository:
@@ -172,6 +203,25 @@ class SQLAlchemySeriesRepository:
             episode_duration_target_seconds=row.episode_duration_target_seconds,
             status=row.status,
         )
+
+    async def list_by_project(self, project_id: str) -> list[SeriesRecord]:
+        result = await self._session.execute(
+            select(m.Series).where(m.Series.project_id == project_id)
+        )
+        return [
+            SeriesRecord(
+                id=row.id,
+                project_id=row.project_id,
+                title=row.title,
+                logline=row.logline,
+                genre=row.genre,
+                target_audience=row.target_audience,
+                episode_count_target=row.episode_count_target,
+                episode_duration_target_seconds=row.episode_duration_target_seconds,
+                status=row.status,
+            )
+            for row in result.scalars()
+        ]
 
     async def save_bible(self, series_id: str, bible: SeriesBible) -> None:
         existing = await self._session.execute(
@@ -636,6 +686,21 @@ def _job_record(row: m.GenerationJob) -> JobRecord:
     )
 
 
+# MODULE-052 - stages that only ever make sense one-at-a-time per
+# (project, series): running a second concurrent CONCEPT_GENERATION or
+# SEASON_PLAN job would race against the first, not add throughput.
+# Per-episode stages are deliberately excluded - see `enqueue`'s docstring.
+_SINGLETON_PER_PROJECT_SERIES_STAGES = frozenset(
+    {
+        JobStage.CONCEPT_GENERATION,
+        JobStage.JUDGE,
+        JobStage.CONCEPT_MERGE,
+        JobStage.SERIES_BIBLE,
+        JobStage.CHARACTERS,
+        JobStage.SEASON_PLAN,
+    }
+)
+
 # Exponential backoff for requeued job attempts, capped at 5 minutes -
 # MODULE-043 "bounded attempts/backoff".
 _BACKOFF_BASE_SECONDS = 5
@@ -695,6 +760,23 @@ class SQLAlchemyJobRepository:
         )
         return [_job_record(row) for row in result.scalars()]
 
+    async def list_filtered(
+        self,
+        project_id: str | None = None,
+        stage: JobStage | None = None,
+        status: JobStatus | None = None,
+    ) -> list[JobRecord]:
+        query = select(m.GenerationJob)
+        if project_id is not None:
+            query = query.where(m.GenerationJob.project_id == project_id)
+        if stage is not None:
+            query = query.where(m.GenerationJob.stage == stage.value)
+        if status is not None:
+            query = query.where(m.GenerationJob.status == status.value)
+        query = query.order_by(m.GenerationJob.created_at.desc())
+        result = await self._session.execute(query)
+        return [_job_record(row) for row in result.scalars()]
+
     # --- Job-queue methods (MODULE-041) ---
 
     async def enqueue(
@@ -708,6 +790,28 @@ class SQLAlchemyJobRepository:
         scheduled_at: datetime | None = None,
         max_attempts: int = 3,
     ) -> JobRecord:
+        # MODULE-052 - "prevent duplicate incompatible runs": only for
+        # stages that are meaningfully singular per (project, series) at a
+        # time - `GenerationJob` has no `episode_id` column, so per-episode
+        # stages (script/shots/etc.) can't be safely deduplicated this way
+        # without risking a false-positive block on two *different*
+        # episodes' legitimate concurrent jobs; documented scope limit.
+        if stage in _SINGLETON_PER_PROJECT_SERIES_STAGES:
+            existing = await self._session.execute(
+                select(m.GenerationJob).where(
+                    m.GenerationJob.project_id == project_id,
+                    m.GenerationJob.series_id == series_id,
+                    m.GenerationJob.stage == stage.value,
+                    m.GenerationJob.status.in_(
+                        [JobStatus.QUEUED.value, JobStatus.RUNNING.value, JobStatus.RETRYING.value]
+                    ),
+                )
+            )
+            if existing.scalars().first() is not None:
+                raise ValueError(
+                    f"a {stage.value} job is already in flight for this project/series - "
+                    "wait for it to finish or cancel it first"
+                )
         row = m.GenerationJob(
             project_id=project_id,
             series_id=series_id,
