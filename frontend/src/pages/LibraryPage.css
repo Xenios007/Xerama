@@ -1,0 +1,41 @@
+.xr-library__intro {
+  color: var(--xr-color-muted, #6b7280);
+  margin-bottom: 1rem;
+}
+
+.xr-library__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.xr-library__video {
+  width: 100%;
+  border-radius: 0.5rem;
+  background: #000;
+  aspect-ratio: 9 / 16;
+  max-height: 420px;
+}
+
+.xr-library__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.6rem;
+}
+
+.xr-library__submeta {
+  font-size: 0.8rem;
+  color: var(--xr-color-muted, #6b7280);
+}
+
+.xr-library__path {
+  font-size: 0.75rem;
+  color: var(--xr-color-muted, #6b7280);
+  overflow-wrap: break-word;
+}
+
+.xr-library__download {
+  margin-top: 0.4rem;
+  font-size: 0.9rem;
+}

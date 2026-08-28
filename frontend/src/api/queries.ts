@@ -19,7 +19,9 @@ import type {
   EpisodeGenerationResult,
   EpisodeRecord,
   EpisodeRender,
+  ChatStatusResponse,
   EpisodeShotPlan,
+  FinishedEpisode,
   GenerateSeriesResult,
   JobRecord,
   JudgeDecisionRecord,
@@ -29,6 +31,8 @@ import type {
   ProjectRecord,
   ProjectStatusResponse,
   QCResult,
+  SettingsResponse,
+  SettingsUpdateRequest,
   SeasonPlanRecord,
   SeriesBible,
   SeriesRecord,
@@ -46,6 +50,9 @@ export const queryKeys = {
   projectCosts: (id: string) => ["projects", id, "costs", "summary"] as const,
   projectObservability: (id: string) => ["projects", id, "observability"] as const,
   jobs: (projectId: string) => ["jobs", { projectId }] as const,
+  settings: ["settings"] as const,
+  finishedEpisodes: (projectId: string) => ["projects", projectId, "finished-episodes"] as const,
+  chatStatus: ["chat", "status"] as const,
 };
 
 export function useProjects() {
@@ -380,30 +387,74 @@ function invalidateEpisodeProduction(queryClient: ReturnType<typeof useQueryClie
   void queryClient.invalidateQueries({ queryKey: ["episodes", episodeId, "audio-productions"] });
 }
 
+export interface PendingKeyframe {
+  storyboardId: string;
+  asset: Asset;
+}
+
+export interface PendingVideoTake {
+  productionId: string;
+  asset: Asset;
+}
+
+/** Generates a keyframe but does NOT accept it - the canvas shows it as a
+ * pending result the user reviews (Accept/Reject), matching how the backend
+ * itself separates generate from accept (see `useAcceptKeyframe`). */
 export function useGenerateKeyframe(episodeId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ sceneNumber, shotNumber }: { sceneNumber: number; shotNumber: number }) => {
+    mutationFn: async ({
+      sceneNumber,
+      shotNumber,
+    }: {
+      sceneNumber: number;
+      shotNumber: number;
+    }): Promise<PendingKeyframe> => {
       const storyboard = await api.post<Storyboard>(
         `/episodes/${episodeId}/scenes/${sceneNumber}/shots/${shotNumber}/storyboard`,
       );
       const asset = await api.post<Asset>(`/storyboards/${storyboard.id}/keyframes/generate`);
-      await api.post<Storyboard>(`/storyboards/${storyboard.id}/keyframes/${asset.id}/accept`);
+      return { storyboardId: storyboard.id, asset };
     },
     onSuccess: () => invalidateEpisodeProduction(queryClient, episodeId),
   });
 }
 
+export function useAcceptKeyframe(episodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ storyboardId, assetId }: { storyboardId: string; assetId: string }) =>
+      api.post<Storyboard>(`/storyboards/${storyboardId}/keyframes/${assetId}/accept`),
+    onSuccess: () => invalidateEpisodeProduction(queryClient, episodeId),
+  });
+}
+
+/** Same generate/review split as `useGenerateKeyframe`, for video takes. */
 export function useGenerateVideoTake(episodeId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ sceneNumber, shotNumber }: { sceneNumber: number; shotNumber: number }) => {
+    mutationFn: async ({
+      sceneNumber,
+      shotNumber,
+    }: {
+      sceneNumber: number;
+      shotNumber: number;
+    }): Promise<PendingVideoTake> => {
       const production = await api.post<ShotVideoProduction>(
         `/episodes/${episodeId}/scenes/${sceneNumber}/shots/${shotNumber}/video-production`,
       );
       const asset = await api.post<Asset>(`/video-productions/${production.id}/takes/generate`);
-      await api.post<ShotVideoProduction>(`/video-productions/${production.id}/takes/${asset.id}/accept`);
+      return { productionId: production.id, asset };
     },
+    onSuccess: () => invalidateEpisodeProduction(queryClient, episodeId),
+  });
+}
+
+export function useAcceptVideoTake(episodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ productionId, assetId }: { productionId: string; assetId: string }) =>
+      api.post<ShotVideoProduction>(`/video-productions/${productionId}/takes/${assetId}/accept`),
     onSuccess: () => invalidateEpisodeProduction(queryClient, episodeId),
   });
 }
@@ -463,5 +514,37 @@ export function useApproveEpisodeRender() {
     onSuccess: (render) => {
       void queryClient.invalidateQueries({ queryKey: ["episodes", render.episode_id, "renders"] });
     },
+  });
+}
+
+export function useSettings() {
+  return useQuery({
+    queryKey: queryKeys.settings,
+    queryFn: () => api.get<SettingsResponse>("/settings"),
+  });
+}
+
+export function useUpdateSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: SettingsUpdateRequest) => api.patch<SettingsResponse>("/settings", payload),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.settings, data);
+    },
+  });
+}
+
+export function useFinishedEpisodes(projectId: string | undefined) {
+  return useQuery({
+    queryKey: projectId ? queryKeys.finishedEpisodes(projectId) : ["projects", "none", "finished-episodes"],
+    queryFn: () => api.get<FinishedEpisode[]>(`/projects/${projectId}/finished-episodes`),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function useChatStatus() {
+  return useQuery({
+    queryKey: queryKeys.chatStatus,
+    queryFn: () => api.get<ChatStatusResponse>("/chat/status"),
   });
 }

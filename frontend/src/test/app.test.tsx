@@ -25,15 +25,8 @@ describe("studio shell", () => {
     renderAt("/");
 
     expect(screen.getByText("Xerama Studio")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Story Studio" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText(/No projects yet/)).toBeInTheDocument());
-  });
-
-  it("renders a placeholder studio page naming its owning module", async () => {
-    vi.stubGlobal("fetch", vi.fn());
-    renderAt("/story");
-    expect(screen.getByRole("heading", { name: "Story Studio" })).toBeInTheDocument();
-    expect(screen.getByText(/MODULE-057/)).toBeInTheDocument();
   });
 
   it("surfaces an API error via the shared error banner", async () => {

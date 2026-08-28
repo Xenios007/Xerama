@@ -1,12 +1,14 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { ChatPanel } from "../chat/ChatPanel";
 import "./AppShell.css";
 
+// Only routes that need no ID belong here - everything else (Story,
+// Characters, Production, Review, Library) is reached contextually from
+// ProjectDetailPage once a project is selected, since each needs a
+// project/series/episode id that only exists once one is picked.
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", end: true },
-  { to: "/story", label: "Story Studio" },
-  { to: "/characters", label: "Character Studio" },
-  { to: "/production", label: "Production Studio" },
-  { to: "/review", label: "Review & Approval" },
+  { to: "/settings", label: "Settings" },
 ];
 
 export function AppShell() {
@@ -30,6 +32,7 @@ export function AppShell() {
       <main className="xr-shell__content">
         <Outlet />
       </main>
+      <ChatPanel />
     </div>
   );
 }

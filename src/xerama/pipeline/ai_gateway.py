@@ -30,6 +30,39 @@ logger = logging.getLogger("xerama.ai_gateway")
 DEFAULT_MAX_ATTEMPTS = 3
 
 
+def _strict_json_schema(node: object) -> object:
+    """Recursively rewrite a Pydantic-generated JSON Schema so it satisfies
+    OpenAI/OpenRouter "strict" structured-output mode: every object schema
+    needs `additionalProperties: false` and every property listed in
+    `required` (Pydantic only lists fields without a default) - see
+    https://platform.openai.com/docs/guides/structured-outputs. Without
+    this, strict-mode providers reject the request outright with HTTP 400
+    rather than silently ignoring the schema like non-strict providers do."""
+    if isinstance(node, dict):
+        result = {k: _strict_json_schema(v) for k, v in node.items()}
+        if "$ref" in result:
+            # OpenAI strict mode: a $ref must be the only key in its object -
+            # Pydantic adds a sibling "default" for fields like `x: Enum = Y`.
+            return {"$ref": result["$ref"]}
+        if result.get("type") == "object":
+            if "properties" in result:
+                result["additionalProperties"] = False
+                result["required"] = list(result["properties"].keys())
+            elif "additionalProperties" in result:
+                # An open-ended map (e.g. `dict[str, str]`) has no fixed key
+                # set, which strict mode can't express (it requires every
+                # property enumerated in `required`) - force it to the empty
+                # object; these fields default to {} and are populated by
+                # non-LLM code later (e.g. Character.reference_pack).
+                result["properties"] = {}
+                result["required"] = []
+                result["additionalProperties"] = False
+        return result
+    if isinstance(node, list):
+        return [_strict_json_schema(item) for item in node]
+    return node
+
+
 class XeramaGenerationError(Exception):
     """Raised when a role's structured output could not be produced/validated
     after retries, or the provider failed with a non-retriable error."""
@@ -76,13 +109,15 @@ class AIGateway:
             LLMMessage(role="user", content=user_prompt),
         ]
 
+        response_schema = _strict_json_schema(schema.model_json_schema())
+
         last_error: Exception | None = None
         for attempt in range(1, self._max_attempts + 1):
             request = LLMRequest(
                 model=role_config.model,
                 messages=messages,
                 temperature=role_config.temperature,
-                response_schema=schema.model_json_schema(),
+                response_schema=response_schema,
                 schema_name=schema.__name__,
             )
             try:

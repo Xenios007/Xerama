@@ -178,13 +178,30 @@ export type PhysicalStateVariant = WardrobeVariant;
 
 export type AudioMode = "native" | "tts_lipsync" | "hybrid";
 
+export interface Camera {
+  shot_size: string;
+  angle: string;
+  lens: string;
+  movement: string;
+}
+
+export interface Visual {
+  composition: string;
+  lighting: string;
+  emotion: string;
+}
+
 export interface Shot {
   shot_number: number;
   scene_number: number;
   narrative_function: string;
+  production_priority: string;
   character_ids: string[];
   dialogue: string;
+  action: string;
   duration_seconds: number;
+  camera: Camera;
+  visual: Visual;
   audio_mode: AudioMode;
   continuity_group: string | null;
 }
@@ -312,6 +329,51 @@ export interface EpisodeRender {
   render_asset_id: string;
   parent_render_id: string | null;
   source_script_version: number;
+}
+
+export interface RuntimeSettings {
+  id: string;
+  llm_provider: "openrouter" | "ollama";
+  ollama_model: string;
+  ollama_base_url: string;
+  media_provider: "fal" | "fake";
+  chat_model: string;
+  updated_at: string | null;
+}
+
+export interface SettingsResponse {
+  runtime: RuntimeSettings;
+  openrouter_key_configured: boolean;
+  fal_key_configured: boolean;
+  ollama_reachable: boolean;
+}
+
+export interface SettingsUpdateRequest {
+  llm_provider?: "openrouter" | "ollama";
+  ollama_model?: string;
+  ollama_base_url?: string;
+  media_provider?: "fal" | "fake";
+  chat_model?: string;
+}
+
+export interface FinishedEpisode {
+  episode_id: string;
+  series_id: string;
+  series_title: string;
+  episode_number: number;
+  render_id: string;
+  version: number;
+  render_asset_id: string;
+  friendly_path: string;
+  download_url: string;
+  duration_seconds: number | null;
+  size_bytes: number | null;
+  created_at: string;
+}
+
+export interface ChatStatusResponse {
+  configured: boolean;
+  model: string;
 }
 
 export interface CostSummaryResponse {

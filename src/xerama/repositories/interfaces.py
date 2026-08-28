@@ -27,6 +27,7 @@ from xerama.domain.media_eval import MediaEvalRunResult
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
 from xerama.domain.quality import QCResult
+from xerama.domain.runtime_settings import RuntimeSettings
 from xerama.domain.scene import EpisodeShotPlan
 from xerama.domain.season import SeasonPlan
 from xerama.domain.sound_effect import SoundEffectCue
@@ -450,6 +451,14 @@ class StyleBibleRepository(Protocol):
     async def set_lock(self, series_id: str, locked: bool) -> StyleBible: ...
 
     async def unlock_and_bump_version(self, series_id: str) -> StyleBible: ...
+
+
+class RuntimeSettingsRepository(Protocol):
+    """Singleton row (`id="default"`) - see `domain.runtime_settings`."""
+
+    async def get_or_create(self) -> RuntimeSettings: ...
+
+    async def update(self, **fields: object) -> RuntimeSettings: ...
 
 
 class StoryboardRepository(Protocol):

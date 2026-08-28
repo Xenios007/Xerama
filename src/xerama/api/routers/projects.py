@@ -1,15 +1,19 @@
 """Project lifecycle endpoints (MODULE-051). See docs/DATA_MODEL.md Project."""
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from xerama.api.authorization import get_current_user, get_project_membership_repo, require_project_role
 from xerama.api.deps import (
+    get_asset_service,
     get_episode_render_repo,
     get_episode_repo,
     get_project_repo,
     get_series_repo,
 )
+from xerama.services.asset_service import AssetService
 from xerama.config import get_settings
 from xerama.domain.auth import User
 from xerama.domain.enums import ProjectRole
@@ -52,6 +56,26 @@ class SeriesStatusSummary(BaseModel):
 class ProjectStatusResponse(BaseModel):
     project: ProjectRecord
     series: list[SeriesStatusSummary]
+
+
+class FinishedEpisode(BaseModel):
+    """One approved, ready-to-watch episode render - what the Library UI
+    lists. `friendly_path` is the `finished_videos/...` mirror copy
+    `EpisodeAssemblyService.approve_render` writes; `download_url` is the
+    stable asset endpoint every render is still reachable through."""
+
+    episode_id: str
+    series_id: str
+    series_title: str
+    episode_number: int
+    render_id: str
+    version: int
+    render_asset_id: str
+    friendly_path: str
+    download_url: str
+    duration_seconds: float | None
+    size_bytes: int | None
+    created_at: datetime
 
 
 @router.post("", response_model=ProjectRecord)
@@ -179,3 +203,54 @@ async def get_project_status(
             )
         )
     return ProjectStatusResponse(project=project, series=series_summaries)
+
+
+@router.get(
+    "/{project_id}/finished-episodes",
+    response_model=list[FinishedEpisode],
+    dependencies=[Depends(require_project_role(ProjectRole.VIEWER))],
+)
+async def list_finished_episodes(
+    project_id: str,
+    project_repo: ProjectRepository = Depends(get_project_repo),
+    series_repo: SeriesRepository = Depends(get_series_repo),
+    episode_repo: EpisodeRepository = Depends(get_episode_repo),
+    render_repo: EpisodeRenderRepository = Depends(get_episode_render_repo),
+    asset_service: AssetService = Depends(get_asset_service),
+) -> list[FinishedEpisode]:
+    """Every episode across this project whose *current* render is
+    `approved` - the "where do I find my finished video" answer (see
+    `EpisodeAssemblyService.approve_render`, which is what populates the
+    `finished_videos/` mirror this lists)."""
+    project = await project_repo.get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+
+    results: list[FinishedEpisode] = []
+    for series in await series_repo.list_by_project(project_id):
+        for episode in await episode_repo.list_by_series(series.id):
+            render = await render_repo.get_current(episode.id)
+            if render is None or render.status != "approved":
+                continue
+            asset = await asset_service.get(render.render_asset_id)
+            friendly_path = (
+                f"finished_videos/{episode.series_id}/"
+                f"episode_{episode.episode_number:02d}_v{render.version}.mp4"
+            )
+            results.append(
+                FinishedEpisode(
+                    episode_id=episode.id,
+                    series_id=series.id,
+                    series_title=series.title,
+                    episode_number=episode.episode_number,
+                    render_id=render.id,
+                    version=render.version,
+                    render_asset_id=render.render_asset_id,
+                    friendly_path=friendly_path,
+                    download_url=f"/assets/{render.render_asset_id}/download",
+                    duration_seconds=asset.duration_seconds if asset else None,
+                    size_bytes=asset.size_bytes if asset else None,
+                    created_at=render.created_at,
+                )
+            )
+    return results

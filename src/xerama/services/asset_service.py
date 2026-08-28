@@ -23,6 +23,16 @@ class AssetService:
         self._storage = storage
         self._asset_repo = asset_repo
 
+    async def save_named_copy(self, data: bytes, relative_path: str) -> str:
+        """Writes a human-readable mirror copy at an explicit path (e.g.
+        `finished_videos/{series_id}/episode_01_v2.mp4`) - unlike
+        `ingest_bytes`, this is not content-addressed or asset-repo-tracked;
+        it exists purely so a finished render is easy to find on disk /
+        list via the Library UI. Always overwrites, so re-approving an
+        episode replaces its previous finished copy."""
+        await self._storage.save_bytes(data, relative_path)
+        return relative_path
+
     async def ingest_bytes(
         self,
         data: bytes,

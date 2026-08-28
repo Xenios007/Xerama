@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { QueryState } from "../components/ui/QueryState";
@@ -77,28 +77,32 @@ function PendingAssetRow({ asset }: { asset: Asset }) {
   );
 }
 
-function RenderVersionRow({ render }: { render: EpisodeRender }) {
+function RenderVersionRow({ render, projectId }: { render: EpisodeRender; projectId?: string }) {
   const approve = useApproveEpisodeRender();
   return (
     <div className="xr-review__row">
       <span>
         v{render.version} - {render.status}
       </span>
-      {render.status !== "approved" && (
+      {render.status !== "approved" ? (
         <Button onClick={() => approve.mutate(render.id)} disabled={approve.isPending}>
           Approve for publish
         </Button>
+      ) : (
+        projectId && <Link to={`/library/${projectId}`}>Find it in the Library →</Link>
       )}
     </div>
   );
 }
 
-function EpisodePublishPanel({ episodeId }: { episodeId: string }) {
+function EpisodePublishPanel({ episodeId, projectId }: { episodeId: string; projectId?: string }) {
   const renders = useEpisodeRenders(episodeId);
   return (
     <QueryState isLoading={renders.isLoading} error={renders.error}>
       {renders.data?.length ? (
-        renders.data.map((render) => <RenderVersionRow key={render.id} render={render} />)
+        renders.data.map((render) => (
+          <RenderVersionRow key={render.id} render={render} projectId={projectId} />
+        ))
       ) : (
         <p>No renders yet for this episode.</p>
       )}
@@ -134,7 +138,7 @@ export function ReviewApprovalStudioPage() {
                     <strong>
                       {series.title} - Episode {episode.episode_number}
                     </strong>
-                    <EpisodePublishPanel episodeId={episode.id} />
+                    <EpisodePublishPanel episodeId={episode.id} projectId={projectId} />
                   </div>
                 )),
               )

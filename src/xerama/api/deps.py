@@ -38,6 +38,7 @@ from xerama.repositories.sqlalchemy_impl import (
     SQLAlchemyMusicCueRepository,
     SQLAlchemyProjectMembershipRepository,
     SQLAlchemyProjectRepository,
+    SQLAlchemyRuntimeSettingsRepository,
     SQLAlchemySeasonRepository,
     SQLAlchemySeriesRepository,
     SQLAlchemySoundEffectCueRepository,
@@ -118,6 +119,12 @@ def get_character_casting_service(
 
 def get_style_bible_repo(session: AsyncSession = Depends(get_session)) -> SQLAlchemyStyleBibleRepository:
     return SQLAlchemyStyleBibleRepository(session)
+
+
+def get_runtime_settings_repo(
+    session: AsyncSession = Depends(get_session),
+) -> SQLAlchemyRuntimeSettingsRepository:
+    return SQLAlchemyRuntimeSettingsRepository(session)
 
 
 def get_style_bible_service(

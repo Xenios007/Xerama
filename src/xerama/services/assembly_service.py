@@ -174,8 +174,22 @@ class EpisodeAssemblyService:
 
     async def approve_render(self, render_id: str) -> EpisodeRender:
         """Also how rollback works - approving an older `superseded`
-        render makes it current again without touching its content."""
-        return await self._render_repo.approve(render_id)
+        render makes it current again without touching its content.
+
+        Also mirrors the render's bytes into `finished_videos/` under a
+        human-readable name (Module: Library UI) - the primary
+        content-addressed copy stays the source of truth; this is purely a
+        "find my finished episode without knowing an asset id" convenience."""
+        render = await self._render_repo.approve(render_id)
+        episode = await self._episode_repo.get(render.episode_id)
+        if episode is not None:
+            data = await self._asset_service.read_bytes(render.render_asset_id)
+            friendly_path = (
+                f"finished_videos/{episode.series_id}/"
+                f"episode_{episode.episode_number:02d}_v{render.version}.mp4"
+            )
+            await self._asset_service.save_named_copy(data, friendly_path)
+        return render
 
     async def get_current(self, episode_id: str) -> EpisodeRender | None:
         return await self._render_repo.get_current(episode_id)

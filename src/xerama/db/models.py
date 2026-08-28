@@ -471,6 +471,23 @@ class StyleBible(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
+class RuntimeSettings(Base):
+    """Single-row table (`id="default"`) holding provider/model choices the
+    Settings UI can change without a server restart - see `app.py`'s
+    `rebuild_providers()`. Secrets (API keys) stay `.env`-only; this only
+    ever stores which provider/model is selected, never a credential."""
+
+    __tablename__ = "runtime_settings"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: "default")
+    llm_provider: Mapped[str] = mapped_column(String(16), default="openrouter")
+    ollama_model: Mapped[str] = mapped_column(String(128), default="qwen2.5:7b")
+    ollama_base_url: Mapped[str] = mapped_column(String(255), default="http://localhost:11434/v1")
+    media_provider: Mapped[str] = mapped_column(String(16), default="fake")
+    chat_model: Mapped[str] = mapped_column(String(128), default="anthropic/claude-sonnet-5")
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
 class Storyboard(Base):
     """Per-shot still-image workflow record - see Module 06. Individual
     keyframe attempts are `Asset` rows (type=image), not duplicated here."""

@@ -1,0 +1,114 @@
+.xr-settings__intro {
+  color: var(--xr-color-muted, #6b7280);
+  margin-bottom: 1rem;
+}
+
+.xr-settings__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.xr-settings__saved {
+  color: #059669;
+  font-size: 0.85rem;
+}
+
+.xr-settings__error {
+  color: var(--xr-color-danger, #dc2626);
+  font-size: 0.85rem;
+}
+
+.xr-settings__layout {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 700px) {
+  .xr-settings__layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Sidebar nav - mirrors MangaTranslator's Config tab nav-button pattern */
+
+.xr-settings__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  border-right: 1px solid var(--xr-color-border, #e5e7eb);
+  padding-right: 0.75rem;
+}
+
+.xr-settings__nav-button {
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  font-size: 1rem;
+  color: var(--xr-color-text, #1f2937);
+  cursor: pointer;
+}
+
+.xr-settings__nav-button:hover {
+  background: var(--xr-color-border, #e5e7eb);
+}
+
+.xr-settings__nav-button--active {
+  background: var(--xr-color-primary, #2563eb);
+  color: #fff;
+}
+
+/* Content panel */
+
+.xr-settings__content {
+  border: 1px solid var(--xr-color-border, #e5e7eb);
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem;
+}
+
+.xr-settings__group h3 {
+  margin-top: 0;
+}
+
+.xr-settings__hint {
+  color: var(--xr-color-muted, #6b7280);
+  font-size: 0.85rem;
+  margin-top: -0.4rem;
+}
+
+.xr-settings__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem 0;
+  cursor: pointer;
+}
+
+.xr-settings__option input[type="radio"] {
+  margin-top: 0.3rem;
+}
+
+.xr-settings__status {
+  font-size: 0.8rem;
+  color: var(--xr-color-muted, #6b7280);
+}
+
+.xr-settings__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0.5rem 1.7rem;
+}
+
+.xr-settings__fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--xr-color-muted, #6b7280);
+}

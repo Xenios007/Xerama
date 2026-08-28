@@ -7,10 +7,17 @@ import { CharacterStudioPage } from "./pages/CharacterStudioPage";
 import { CharacterDetailPage } from "./pages/CharacterDetailPage";
 import { ProductionStudioPage } from "./pages/ProductionStudioPage";
 import { ReviewApprovalStudioPage } from "./pages/ReviewApprovalStudioPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { LibraryPage } from "./pages/LibraryPage";
 
 // Exported separately from the router itself so tests can build a
 // MemoryRouter from the exact same route tree instead of duplicating it.
+//
+// Note: `/story`, `/characters`, `/production`, `/review` without an ID
+// used to render a dead-end placeholder ("go back to the Dashboard") -
+// removed in favor of the contextual links already on `ProjectDetailPage`
+// (into `/story/:seriesId` etc.), which is the only place those IDs come
+// from anyway.
 export const routes: RouteObject[] = [
   {
     path: "/",
@@ -18,47 +25,13 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <DashboardPage /> },
       { path: "projects/:projectId", element: <ProjectDetailPage /> },
-      {
-        path: "story",
-        element: (
-          <PlaceholderPage
-            title="Story Studio"
-            module="MODULE-057 - open a project's series from the Dashboard to view it"
-          />
-        ),
-      },
       { path: "story/:seriesId", element: <StoryStudioPage /> },
-      {
-        path: "characters",
-        element: (
-          <PlaceholderPage
-            title="Character Studio"
-            module="MODULE-058 - open a project's series from the Dashboard to view its cast"
-          />
-        ),
-      },
       { path: "characters/:seriesId", element: <CharacterStudioPage /> },
       { path: "characters/:seriesId/:characterId", element: <CharacterDetailPage /> },
-      {
-        path: "production",
-        element: (
-          <PlaceholderPage
-            title="Production Studio"
-            module="MODULE-059 - open an episode from the Story Studio to supervise its shots"
-          />
-        ),
-      },
       { path: "production/:episodeId", element: <ProductionStudioPage /> },
-      {
-        path: "review",
-        element: (
-          <PlaceholderPage
-            title="Review & Approval Studio"
-            module="MODULE-060 - open a project from the Dashboard to review its queue"
-          />
-        ),
-      },
       { path: "review/:projectId", element: <ReviewApprovalStudioPage /> },
+      { path: "library/:projectId", element: <LibraryPage /> },
+      { path: "settings", element: <SettingsPage /> },
     ],
   },
 ];

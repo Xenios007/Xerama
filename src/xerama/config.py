@@ -54,6 +54,11 @@ _ROLE_ENV_VAR = {
     ModelRole.SHOWRUNNER: "SHOWRUNNER_MODEL",
 }
 
+# Public: the `Settings` field name for every role's model override - used by
+# `api/app.py`'s `rebuild_providers()` to point every role at one local model
+# when the runtime-settings LLM provider is "ollama".
+ROLE_MODEL_FIELDS: tuple[str, ...] = tuple(v.lower() for v in _ROLE_ENV_VAR.values())
+
 
 class Settings(BaseSettings):
     """Environment-backed application settings. `openrouter_api_key` is a
@@ -65,6 +70,12 @@ class Settings(BaseSettings):
 
     openrouter_api_key: SecretStr = SecretStr("")
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # Real image/video adapters (providers/fal_image.py, providers/fal_video.py) -
+    # unset falls back to the fake providers, same "fake now, real adapter
+    # later" pattern as every other external provider in this codebase.
+    fal_api_key: SecretStr = SecretStr("")
+    # Chat assistant (api/routers/chat.py) - rides openrouter_api_key above,
+    # no separate key: see chat.py's module docstring for why.
 
     xerama_mode: str = "standard"
     log_level: str = "INFO"

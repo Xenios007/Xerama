@@ -45,6 +45,7 @@ from xerama.domain.media_eval import MediaEvalRunResult, MediaQCDimensionResult
 from xerama.domain.media_qc import MediaQCAttempt
 from xerama.domain.music import MusicCue
 from xerama.domain.rights import RightsMetadata
+from xerama.domain.runtime_settings import RuntimeSettings
 from xerama.domain.season import SeasonPlan
 from xerama.domain.sound_effect import SoundEffectCue
 from xerama.domain.storyboard import Storyboard
@@ -1314,6 +1315,41 @@ class SQLAlchemyCharacterCastingRepository:
             .order_by(m.CharacterPhysicalStateVariant.created_at)
         )
         return [_physical_state_variant(row) for row in result.scalars()]
+
+
+def _runtime_settings(row: m.RuntimeSettings) -> RuntimeSettings:
+    return RuntimeSettings(
+        id=row.id,
+        llm_provider=row.llm_provider,
+        ollama_model=row.ollama_model,
+        ollama_base_url=row.ollama_base_url,
+        media_provider=row.media_provider,
+        chat_model=row.chat_model,
+        updated_at=row.updated_at,
+    )
+
+
+class SQLAlchemyRuntimeSettingsRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_or_create(self) -> RuntimeSettings:
+        row = await self._session.get(m.RuntimeSettings, "default")
+        if row is None:
+            row = m.RuntimeSettings(id="default")
+            self._session.add(row)
+            await self._session.flush()
+        return _runtime_settings(row)
+
+    async def update(self, **fields: object) -> RuntimeSettings:
+        row = await self._session.get(m.RuntimeSettings, "default")
+        if row is None:
+            row = m.RuntimeSettings(id="default")
+            self._session.add(row)
+        for key, value in fields.items():
+            setattr(row, key, value)
+        await self._session.flush()
+        return _runtime_settings(row)
 
 
 def _style_bible(row: m.StyleBible) -> StyleBible:

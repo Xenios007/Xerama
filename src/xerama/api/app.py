@@ -15,6 +15,7 @@ from xerama.api.routers import (
     assets,
     audio_production,
     auth,
+    chat,
     characters,
     costs,
     episodes,
@@ -29,6 +30,7 @@ from xerama.api.routers import (
     optimization,
     projects,
     season,
+    settings as settings_router,
     sound_effect_cues,
     storyboards,
     style_bible,
@@ -36,11 +38,13 @@ from xerama.api.routers import (
     video_production,
     voice_profile,
 )
-from xerama.config import ModelRoleRegistry, Settings, get_settings
+from xerama.config import ROLE_MODEL_FIELDS, ModelRoleRegistry, Settings, get_settings
 from xerama.db.base import create_all, make_engine, make_session_factory
+from xerama.domain.runtime_settings import RuntimeSettings
 from xerama.observability.logging import configure_structured_logging
 from xerama.pipeline.ai_gateway import AIGateway
 from xerama.pipeline.rate_limiting import RateLimiter
+from xerama.repositories.sqlalchemy_impl import SQLAlchemyRuntimeSettingsRepository
 from xerama.providers.fake_assembler import FakeAssembler
 from xerama.providers.fake_frame_extractor import FakeFrameExtractor
 from xerama.providers.fake_image import FakeImageProvider
@@ -48,6 +52,9 @@ from xerama.providers.fake_lip_sync import FakeLipSyncProvider
 from xerama.providers.fake_media_inspector import FakeMediaInspector
 from xerama.providers.fake_media_qc import FakeMediaQCProvider
 from xerama.providers.fake_video import FakeVideoProvider
+from xerama.providers.fal_image import FalImageProvider
+from xerama.providers.fal_video import FalVideoProvider
+from xerama.providers.video import VideoProviderCapabilities
 from xerama.providers.fake_voice import FakeVoiceProvider
 from xerama.providers.ffmpeg_assembler import FFmpegAssembler, ffmpeg_is_available
 from xerama.providers.ffmpeg_frame_extractor import FFmpegFrameExtractor
@@ -62,6 +69,66 @@ def _configure_logging(settings: Settings) -> None:
     configure_structured_logging(settings.log_level)
 
 
+def rebuild_providers(
+    app: FastAPI,
+    settings: Settings,
+    runtime_settings: RuntimeSettings,
+    http_client: httpx.AsyncClient,
+) -> None:
+    """(Re)builds the provider-dependent parts of app state from the
+    current `RuntimeSettings` selection - called once at startup and again
+    from `PATCH /settings` so a provider/model change takes effect
+    immediately, no restart needed. Everything else in `app.state`
+    (storage, rate limiter, ffmpeg-backed providers, voice/lip-sync) is
+    independent of this choice and stays untouched."""
+    if runtime_settings.llm_provider == "ollama":
+        # A local model applies to every role uniformly (testing-phase
+        # simplicity, not a limitation of the mechanism) - reuses
+        # `ModelRoleRegistry.resolve()` (config.py) completely unchanged.
+        effective_settings = settings.model_copy(
+            update={field: runtime_settings.ollama_model for field in ROLE_MODEL_FIELDS}
+        )
+        llm_provider = OpenRouterProvider(
+            api_key="ollama",  # ignored by Ollama's OpenAI-compat endpoint
+            base_url=runtime_settings.ollama_base_url,
+            http_client=http_client,
+        )
+    else:
+        effective_settings = settings
+        llm_provider = OpenRouterProvider(
+            api_key=settings.openrouter_api_key.get_secret_value(),
+            base_url=settings.openrouter_base_url,
+            http_client=http_client,
+        )
+    app.state.ai_gateway = AIGateway(
+        provider=llm_provider,
+        roles=ModelRoleRegistry(effective_settings),
+        health=ProviderHealthTracker(),
+    )
+
+    # Real image/video adapters (fal.ai) when both FAL_API_KEY is configured
+    # AND the runtime setting selects "fal" - fake otherwise, same "fake now,
+    # real adapter later" pattern as every other external provider. Voice/
+    # lip-sync real adapters aren't built yet (Module 09), so those stay fake
+    # regardless and aren't rebuilt here.
+    fal_api_key = settings.fal_api_key.get_secret_value()
+    if runtime_settings.media_provider == "fal" and fal_api_key:
+        app.state.image_router = MediaProviderRouter(
+            [FalImageProvider(api_key=fal_api_key, http_client=http_client)]
+        )
+        app.state.video_router = MediaProviderRouter(
+            [FalVideoProvider(api_key=fal_api_key, http_client=http_client)]
+        )
+    else:
+        app.state.image_router = MediaProviderRouter([FakeImageProvider()])
+        # native_audio=True: several real 2026 video models (e.g. Veo/Sora-class)
+        # generate audio natively, and the shot planner is free to request it -
+        # the fake stand-in should cover that capability rather than reject it.
+        app.state.video_router = MediaProviderRouter(
+            [FakeVideoProvider(capabilities=VideoProviderCapabilities(native_audio=True))]
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
@@ -72,20 +139,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     session_factory = make_session_factory(engine)
 
     http_client = httpx.AsyncClient(timeout=120.0)
-    provider = OpenRouterProvider(
-        api_key=settings.openrouter_api_key.get_secret_value(),
-        base_url=settings.openrouter_base_url,
-        http_client=http_client,
-    )
-    gateway = AIGateway(
-        provider=provider,
-        roles=ModelRoleRegistry(settings),
-        health=ProviderHealthTracker(),
-    )
 
     app.state.engine = engine
     app.state.session_factory = session_factory
-    app.state.ai_gateway = gateway
     app.state.http_client = http_client
     app.state.storage_provider = LocalStorageProvider(settings.asset_storage_path)
     # MODULE-068 - process-lifetime, in-memory (see rate_limiting.py's
@@ -96,14 +152,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         window_seconds=settings.rate_limit_window_seconds,
         max_concurrent_per_project=settings.rate_limit_max_concurrent_per_project,
     )
-    # No free/trial media API is wired up yet for any of these - see
-    # Module 06/07. Manual asset upload (Module 04) remains the first-class
-    # fallback for images; video/voice/lip-sync consumers arrive in
-    # Modules 08/09. Each registry can register additional real adapters
-    # later without any caller-side change - they only ever ask a router
-    # for a capability, never a vendor.
-    app.state.image_router = MediaProviderRouter([FakeImageProvider()])
-    app.state.video_router = MediaProviderRouter([FakeVideoProvider()])
+
+    async with session_factory() as session:
+        runtime_settings = await SQLAlchemyRuntimeSettingsRepository(session).get_or_create()
+        await session.commit()
+    rebuild_providers(app, settings, runtime_settings, http_client)
+
     app.state.voice_router = MediaProviderRouter([FakeVoiceProvider()])
     app.state.lip_sync_router = MediaProviderRouter([FakeLipSyncProvider()])
     # MODULE-044 - no real vision-capable QC model is wired up yet either;
@@ -194,6 +248,8 @@ def create_app() -> FastAPI:
     app.include_router(feedback.router)
     app.include_router(eval.router)
     app.include_router(media_eval.router)
+    app.include_router(settings_router.router)
+    app.include_router(chat.router)
     return app
 
 

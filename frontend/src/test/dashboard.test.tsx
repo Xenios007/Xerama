@@ -59,11 +59,20 @@ describe("Project Dashboard (MODULE-056)", () => {
   });
 
   it("creates a project via the form and refreshes the list", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse([])) // initial list
-      .mockResolvedValueOnce(jsonResponse(SAMPLE_PROJECT)) // POST /projects
-      .mockResolvedValueOnce(jsonResponse([SAMPLE_PROJECT])); // refetch after invalidation
+    // URL-dispatching (not positional) so unrelated background calls - e.g.
+    // the global ChatPanel's GET /chat/status - can't desync a fixed
+    // once()-chain sequence.
+    let projectCreated = false;
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.includes("/projects")) {
+        projectCreated = true;
+        return Promise.resolve(jsonResponse(SAMPLE_PROJECT));
+      }
+      if (url.includes("/projects")) {
+        return Promise.resolve(jsonResponse(projectCreated ? [SAMPLE_PROJECT] : []));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     renderAt("/");
@@ -73,8 +82,9 @@ describe("Project Dashboard (MODULE-056)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => expect(screen.getByText("Trial 01")).toBeInTheDocument());
-    const [, postInit] = fetchMock.mock.calls[1];
-    expect(JSON.parse(postInit.body)).toEqual({ name: "Trial 01" });
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(postCall).toBeDefined();
+    expect(JSON.parse((postCall as [string, RequestInit])[1].body as string)).toEqual({ name: "Trial 01" });
   });
 
   it("shows a start-series form when a project has no series yet", async () => {
